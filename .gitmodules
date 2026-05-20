@@ -16,3 +16,6 @@
 [submodule "custom_nodes/ComfyUI-Impact-Subpack"]
 	path = custom_nodes/ComfyUI-Impact-Subpack
 	url = git@github.com:ltdrdata/ComfyUI-Impact-Subpack.git
+[submodule "custom_nodes/ComfyUI_Noise"]
+	path = custom_nodes/ComfyUI_Noise
+	url = git@github.com:BlenderNeko/ComfyUI_Noise.git
