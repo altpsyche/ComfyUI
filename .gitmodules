@@ -1,21 +1,69 @@
 [submodule "custom_nodes/ComfyUI-Manager"]
 	path = custom_nodes/ComfyUI-Manager
-	url = https://github.com/Comfy-Org/ComfyUI-Manager.git
+	url = git@github.com:Comfy-Org/ComfyUI-Manager.git
 [submodule "custom_nodes/ComfyUI_IPAdapter_plus"]
 	path = custom_nodes/ComfyUI_IPAdapter_plus
-	url = https://github.com/cubiq/ComfyUI_IPAdapter_plus.git
+	url = git@github.com:cubiq/ComfyUI_IPAdapter_plus.git
 [submodule "custom_nodes/comfyui_controlnet_aux"]
 	path = custom_nodes/comfyui_controlnet_aux
-	url = https://github.com/Fannovel16/comfyui_controlnet_aux.git
+	url = git@github.com:Fannovel16/comfyui_controlnet_aux.git
 [submodule "custom_nodes/ComfyUI-Advanced-ControlNet"]
 	path = custom_nodes/ComfyUI-Advanced-ControlNet
-	url = https://github.com/Kosinkadink/ComfyUI-Advanced-ControlNet.git
+	url = git@github.com:Kosinkadink/ComfyUI-Advanced-ControlNet.git
 [submodule "custom_nodes/ComfyUI-Impact-Pack"]
 	path = custom_nodes/ComfyUI-Impact-Pack
-	url = https://github.com/ltdrdata/ComfyUI-Impact-Pack.git
+	url = git@github.com:ltdrdata/ComfyUI-Impact-Pack.git
 [submodule "custom_nodes/ComfyUI-Impact-Subpack"]
 	path = custom_nodes/ComfyUI-Impact-Subpack
 	url = git@github.com:ltdrdata/ComfyUI-Impact-Subpack.git
 [submodule "custom_nodes/ComfyUI_Noise"]
 	path = custom_nodes/ComfyUI_Noise
 	url = git@github.com:BlenderNeko/ComfyUI_Noise.git
+[submodule "custom_nodes/Comfy-WaveSpeed"]
+	path = custom_nodes/Comfy-WaveSpeed
+	url = git@github.com:chengzeyi/Comfy-WaveSpeed.git
+[submodule "custom_nodes/comfyui-aesthetic-predictor-v2-5"]
+	path = custom_nodes/comfyui-aesthetic-predictor-v2-5
+	url = git@github.com:discus0434/comfyui-aesthetic-predictor-v2-5.git
+[submodule "custom_nodes/ComfyUI-Detail-Daemon"]
+	path = custom_nodes/ComfyUI-Detail-Daemon
+	url = git@github.com:Jonseed/ComfyUI-Detail-Daemon.git
+[submodule "custom_nodes/ComfyUI-Inspire-Pack"]
+	path = custom_nodes/ComfyUI-Inspire-Pack
+	url = git@github.com:ltdrdata/ComfyUI-Inspire-Pack.git
+[submodule "custom_nodes/ComfyUI-Olm-Sketch"]
+	path = custom_nodes/ComfyUI-Olm-Sketch
+	url = git@github.com:o-l-l-i/ComfyUI-Olm-Sketch.git
+[submodule "custom_nodes/ComfyUI-Prompt-DB"]
+	path = custom_nodes/ComfyUI-Prompt-DB
+	url = git@github.com:HalfikCode/ComfyUI-Prompt-DB.git
+[submodule "custom_nodes/ComfyUI-ultimate-openpose-editor"]
+	path = custom_nodes/ComfyUI-ultimate-openpose-editor
+	url = git@github.com:westNeighbor/ComfyUI-ultimate-openpose-editor.git
+[submodule "custom_nodes/sd-perturbed-attention"]
+	path = custom_nodes/sd-perturbed-attention
+	url = git@github.com:pamparamm/sd-perturbed-attention.git
+[submodule "custom_nodes/comfyui-sam2"]
+	path = custom_nodes/comfyui-sam2
+	url = git@github.com:neverbiasu/ComfyUI-SAM2.git
+[submodule "custom_nodes/comfyui-textonsegs"]
+	path = custom_nodes/comfyui-textonsegs
+	url = git@github.com:nkchocoai/ComfyUI-TextOnSegs.git
+[submodule "custom_nodes/efficiency-nodes-ED"]
+	path = custom_nodes/efficiency-nodes-ED
+	url = git@github.com:NyaamZ/efficiency-nodes-ED.git
+[submodule "custom_nodes/efficiency-nodes-comfyui"]
+	path = custom_nodes/efficiency-nodes-comfyui
+	url = git@github.com:jags111/efficiency-nodes-comfyui.git
+[submodule "custom_nodes/flowmatching-inverter"]
+	path = custom_nodes/flowmatching-inverter
+	url = git@github.com:ttulttul/ComfyUI-FlowMatching-Inverter.git
+[submodule "custom_nodes/rgthree-comfy"]
+	path = custom_nodes/rgthree-comfy
+	url = git@github.com:rgthree/rgthree-comfy.git
+[submodule "custom_nodes/was-ns"]
+	path = custom_nodes/was-ns
+	url = git@github.com:WASasquatch/was-node-suite-comfyui.git
+[submodule "custom_nodes/ComfyScript"]
+	path = custom_nodes/ComfyScript
+	url = git@github.com:Chaoses-Ib/ComfyScript.git
