@@ -7,6 +7,8 @@ __pycache__/
 /temp/
 /custom_nodes/
 !custom_nodes/example_node.py.example
+# Backup dirs from setup scripts
+custom_nodes/*.bak/
 extra_model_paths.yaml
 /.vs
 .vscode/
