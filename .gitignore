@@ -9,8 +9,6 @@ __pycache__/
 !custom_nodes/example_node.py.example
 # Backup dirs from setup scripts
 custom_nodes/*.bak/
-# v9 modular workflow tree — workflows live in a separate repo
-/workflows-src/
 extra_model_paths.yaml
 /.vs
 .vscode/
