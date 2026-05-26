@@ -7,9 +7,18 @@ setlocal EnableDelayedExpansion
 :: One-shot install for a fresh checkout. Idempotent; safe to re-run.
 ::
 :: Usage:
-::   setup.bat              # standard install
-::   setup.bat --skip-torch # skip torch (already installed)
-::   setup.bat --no-color   # disable ANSI colors
+::   setup.bat                    # NVIDIA autodetect (default)
+::   setup.bat --gpu <mode>       # override GPU mode (see below)
+::   setup.bat --skip-torch       # skip torch (already installed)
+::   setup.bat --no-color         # disable ANSI colors
+::
+:: --gpu modes:
+::   nvidia       autodetect via nvidia-smi (default)
+::   amd-rdna3    Windows AMD RX 7000 series (gfx110X)
+::   amd-rdna35   Windows AMD Strix halo / Ryzen AI Max+ (gfx1151)
+::   amd-rdna4    Windows AMD RX 9000 series (gfx120X)
+::   intel-xpu    Intel Arc XPU
+::   cpu          CPU-only wheel
 ::
 :: Prerequisites (phase 1 verifies):
 ::   - Python 3.10+
@@ -24,9 +33,14 @@ title ComfyUI v9 setup
 if not "%~1"=="--no-color" color 0a
 
 set "SKIP_TORCH=0"
+set "GPU_MODE=nvidia"
 :parse
 if "%~1"=="" goto begin
 if /I "%~1"=="--skip-torch" set "SKIP_TORCH=1"
+if /I "%~1"=="--gpu" (
+    set "GPU_MODE=%~2"
+    shift
+)
 shift
 goto parse
 
@@ -75,13 +89,12 @@ echo   [+] SSH to github.com works
 where nvidia-smi >nul 2>&1
 if errorlevel 1 (
     echo   [!] nvidia-smi not found - GPU optional but expected for production gen
-) else (
-    for /f "tokens=*" %%i in ('nvidia-smi --query-gpu=name --format=csv,noheader 2^>nul') do (
-        echo   [+] GPU: %%i
-        goto :gpu_done
-    )
-    :gpu_done
+    goto :after_gpu
 )
+for /f "delims=" %%i in ('nvidia-smi --query-gpu=name --format=csv,noheader 2^>nul') do (
+    echo   [+] GPU: %%i
+)
+:after_gpu
 echo.
 
 :: ----------------------------------------------------------------------------
@@ -129,19 +142,21 @@ echo.
 :: ----------------------------------------------------------------------------
 echo [4/6] Installing ComfyUI core requirements...
 if exist requirements.txt (
-    pip install -r requirements.txt
+    rem only-if-needed: upgrade pinned packages (frontend etc.) without
+    rem clobbering CUDA torch with the unpinned PyPI CPU wheel
+    pip install --upgrade --upgrade-strategy only-if-needed -r requirements.txt
     if errorlevel 1 (
         echo   [x] ComfyUI requirements install failed
         goto fail
     )
-    echo   [+] ComfyUI requirements installed
+    echo   [+] ComfyUI requirements installed/upgraded
 ) else (
     echo   [!] requirements.txt missing - skipping core install
 )
 
 if "%SKIP_TORCH%"=="0" (
-    echo   ... ensuring torch + torchvision for detected CUDA
-    powershell -ExecutionPolicy Bypass -File "%ROOT%\scripts\install_torch.ps1"
+    echo   ... ensuring torch + torchvision for GPU mode: %GPU_MODE%
+    powershell -ExecutionPolicy Bypass -File "%ROOT%\scripts\install_torch.ps1" -GpuMode "%GPU_MODE%"
     if errorlevel 1 (
         echo   [!] torch install reported issues - check output above
     )

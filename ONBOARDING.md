@@ -11,6 +11,13 @@ cd ComfyUI
 #    installs torch/ComfyUI/all custom-node pip deps, runs smoke check)
 .\setup.bat
 
+#    Non-NVIDIA GPU? pick a mode:
+.\setup.bat --gpu amd-rdna3      # AMD RX 7000 (Windows)
+.\setup.bat --gpu amd-rdna35     # AMD Strix halo / Ryzen AI Max+
+.\setup.bat --gpu amd-rdna4      # AMD RX 9000
+.\setup.bat --gpu intel-xpu      # Intel Arc
+.\setup.bat --gpu cpu            # CPU only
+
 # 3. Get your workflows + model manifest (separate repo, planned)
 #    git clone git@github.com:<your-user>/comfyui-workflows.git
 #    Place per the workflows repo's own README.

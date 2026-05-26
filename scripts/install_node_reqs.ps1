@@ -28,7 +28,7 @@ Get-ChildItem $cnDir -Directory | Where-Object { $_.Name -notin '__pycache__','C
     }
 
     Write-Host "  -> $pack ..." -NoNewline
-    $out = & pip install -r $reqFile 2>&1
+    $out = & pip install -U -r $reqFile 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host " ok"
         $results += [PSCustomObject]@{ Pack=$pack; Status='installed' }
