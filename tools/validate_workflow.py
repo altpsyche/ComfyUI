@@ -1,17 +1,23 @@
 """Pre-flight validator for a ComfyUI workflow JSON (any version).
 
-Reads MainGraph*.json (or any workflow), checks:
+Generic checks (run on every workflow):
   - Model files referenced exist on disk (checkpoints, VAE, LoRAs, embeddings,
-    ControlNets, SAM, Ultralytics detectors, upscale models, IPAdapter)
-  - Hard constraints (CLIPSetLastLayer == -2, CFGGuider >= 5)
+    ControlNets, SAM, Ultralytics detectors, upscale models, IPAdapter, CLIP vision)
   - Wildcard files exist (Impact-Pack `__name__` tokens)
+  - Power Lora Loader (rgthree) enabled-LoRA file existence
 
-Operates on the workflow JSON directly — does NOT require workflows-src/.
-Author your workflow in ComfyUI UI, save, run this to catch issues before launch.
+Optional per-workflow rules (auto-loaded from sidecar):
+  Place `<workflow>.rules.toml` next to the .json. Recognized rules:
+    clip_skip     = -2          # require all active CLIPSetLastLayer at -2
+    min_cfg       = 5.0         # require all active CFGGuider >= 5.0
+    max_cfg       = 12.0        # require all active CFGGuider <= 12.0
+    require_nodes = ["X", ...]  # warn if any of these node types missing
+    forbid_nodes  = ["Y", ...]  # warn if any of these node types present
 
 Usage:
     python tools/validate_workflow.py user/default/workflows/MainGraphv8.json
     python tools/validate_workflow.py user/default/workflows/MainGraphv9.json --strict
+    python tools/validate_workflow.py v8.json --rules path/to/rules.toml
 """
 from __future__ import annotations
 
@@ -108,28 +114,70 @@ def find_wildcard_tokens(g: dict) -> list[tuple[str, str]]:
     return out
 
 
-def check_hard_constraints(g: dict) -> list[str]:
-    """Return list of constraint violation messages."""
-    errs = []
-    for n in g.get("nodes", []):
-        if n.get("mode") in (2, 4):
-            continue  # muted / bypassed — skip
-        nt = n.get("type")
-        widgets = n.get("widgets_values") or []
-        if nt == "CLIPSetLastLayer" and widgets:
-            v = widgets[0]
-            if v != -2:
-                errs.append(f"node {n['id']} CLIPSetLastLayer = {v}, expected -2 "
-                            "(amanatsuIllustrious hard requirement)")
-        if nt == "CFGGuider" and widgets:
-            v = widgets[0]
-            try:
-                vf = float(v)
-                if vf < 5.0:
-                    errs.append(f"node {n['id']} CFGGuider = {v}, expected >= 5.0 "
-                                "(amanatsuIllustrious composition floor)")
-            except (TypeError, ValueError):
-                pass
+def load_rules(workflow_path: Path, override: Path | None = None) -> dict:
+    """Auto-load sidecar `<workflow>.rules.toml` if present, or use override path."""
+    if override is not None:
+        candidate = override
+    else:
+        candidate = workflow_path.with_suffix(".rules.toml")
+    if not candidate.exists():
+        return {}
+    try:
+        import tomllib  # py3.11+
+    except ModuleNotFoundError:
+        import tomli as tomllib  # py3.10
+    try:
+        return tomllib.loads(candidate.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"[!] failed to parse {candidate}: {e}", file=sys.stderr)
+        return {}
+
+
+def check_rules(g: dict, rules: dict) -> list[str]:
+    """Apply optional per-workflow rules. Returns violations."""
+    errs: list[str] = []
+    if not rules:
+        return errs
+
+    active_nodes = [n for n in g.get("nodes", []) if n.get("mode") not in (2, 4)]
+    active_types = {n.get("type") for n in active_nodes}
+
+    clip_skip_target = rules.get("clip_skip")
+    if clip_skip_target is not None:
+        for n in active_nodes:
+            if n.get("type") == "CLIPSetLastLayer":
+                widgets = n.get("widgets_values") or []
+                if widgets and widgets[0] != clip_skip_target:
+                    errs.append(f"node {n['id']} CLIPSetLastLayer = {widgets[0]}, "
+                                f"rule requires {clip_skip_target}")
+
+    min_cfg = rules.get("min_cfg")
+    max_cfg = rules.get("max_cfg")
+    if min_cfg is not None or max_cfg is not None:
+        for n in active_nodes:
+            if n.get("type") == "CFGGuider":
+                widgets = n.get("widgets_values") or []
+                if not widgets:
+                    continue
+                try:
+                    v = float(widgets[0])
+                except (TypeError, ValueError):
+                    continue
+                if min_cfg is not None and v < min_cfg:
+                    errs.append(f"node {n['id']} CFGGuider = {v}, rule requires >= {min_cfg}")
+                if max_cfg is not None and v > max_cfg:
+                    errs.append(f"node {n['id']} CFGGuider = {v}, rule requires <= {max_cfg}")
+
+    require_nodes = rules.get("require_nodes") or []
+    for needed in require_nodes:
+        if needed not in active_types:
+            errs.append(f"required node type '{needed}' missing (or all instances bypassed)")
+
+    forbid_nodes = rules.get("forbid_nodes") or []
+    for banned in forbid_nodes:
+        if banned in active_types:
+            errs.append(f"forbidden node type '{banned}' present and active")
+
     return errs
 
 
@@ -138,11 +186,15 @@ def find_lora_widget_for_loader(g: dict) -> list[tuple[str, str]]:
     return []
 
 
-def validate(path: Path, *, strict: bool = False) -> int:
+def validate(path: Path, *, strict: bool = False, rules_path: Path | None = None) -> int:
     g = json.loads(path.read_text(encoding="utf-8"))
+    rules = load_rules(path, rules_path)
 
     print(f"workflow: {path}")
     print(f"  {len(g.get('nodes', []))} nodes, {len(g.get('links', []))} links")
+    if rules:
+        rules_src = rules_path or path.with_suffix(".rules.toml")
+        print(f"  rules:    {rules_src} ({len(rules)} rule(s))")
     print()
 
     missing_files: list[tuple[str, str]] = []
@@ -174,8 +226,8 @@ def validate(path: Path, *, strict: bool = False) -> int:
         if not found:
             missing_wc.append((node_id, tok))
 
-    # 4. Hard constraints
-    constraint_errs = check_hard_constraints(g)
+    # 4. Optional per-workflow rules
+    constraint_errs = check_rules(g, rules)
 
     total = len(missing_files) + len(missing_emb) + len(missing_wc) + len(constraint_errs)
     if total == 0:
@@ -202,7 +254,7 @@ def validate(path: Path, *, strict: bool = False) -> int:
         print()
 
     if constraint_errs:
-        print(f"hard-constraint violations ({len(constraint_errs)}):")
+        print(f"rule violations ({len(constraint_errs)}):")
         for e in constraint_errs:
             print(f"  - {e}")
         print()
@@ -213,8 +265,10 @@ def validate(path: Path, *, strict: bool = False) -> int:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("workflow", help="path to a ComfyUI workflow JSON")
+    p.add_argument("--rules",
+                   help="path to a rules.toml (default: auto-load <workflow>.rules.toml)")
     p.add_argument("--strict", action="store_true",
-                   help="exit non-zero on any issue (default: only on missing files / constraints)")
+                   help="exit non-zero on any issue (default: only on missing files / rules)")
     args = p.parse_args()
 
     path = Path(args.workflow)
@@ -222,7 +276,8 @@ def main() -> int:
         print(f"[x] not found: {path}", file=sys.stderr)
         return 1
 
-    return validate(path, strict=args.strict)
+    rules_path = Path(args.rules) if args.rules else None
+    return validate(path, strict=args.strict, rules_path=rules_path)
 
 
 if __name__ == "__main__":
