@@ -67,3 +67,12 @@
 [submodule "custom_nodes/ComfyScript"]
 	path = custom_nodes/ComfyScript
 	url = git@github.com:Chaoses-Ib/ComfyScript.git
+[submodule "custom_nodes/ComfyUI-Inpaint-CropAndStitch"]
+	path = custom_nodes/ComfyUI-Inpaint-CropAndStitch
+	url = git@github.com:lquesada/ComfyUI-Inpaint-CropAndStitch.git
+[submodule "custom_nodes/ComfyUI-ppm"]
+	path = custom_nodes/ComfyUI-ppm
+	url = git@github.com:pamparamm/ComfyUI-ppm.git
+[submodule "custom_nodes/ComfyUI_UltimateSDUpscale"]
+	path = custom_nodes/ComfyUI_UltimateSDUpscale
+	url = git@github.com:ssitu/ComfyUI_UltimateSDUpscale.git

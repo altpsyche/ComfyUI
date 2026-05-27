@@ -72,9 +72,9 @@ if ($GpuMode -ne 'cpu') {
         if ($LASTEXITCODE -eq 0 -and $existingCuda) {
             $existingCuda = $existingCuda.Trim()
             # For nvidia, cuda version present = OK. For amd/intel, version reports None but
-            # the wheel is hip/xpu-flavored — too hard to detect cleanly. Force-reinstall.
+            # the wheel is hip/xpu-flavored - too hard to detect cleanly. Force-reinstall.
             if ($GpuMode -eq 'nvidia' -and $existingCuda -ne 'cpu') {
-                Write-Host "  [+] torch already CUDA-enabled (cuda=$existingCuda) — skipping reinstall"
+                Write-Host "  [+] torch already CUDA-enabled (cuda=$existingCuda) - skipping reinstall"
                 exit 0
             }
         }
@@ -88,7 +88,7 @@ $args += @('torch', 'torchvision', '--index-url', $indexUrl)
 
 & pip @args
 if ($LASTEXITCODE -ne 0) {
-    Write-Warning "torch install failed — install manually with: pip $($args -join ' ')"
+    Write-Warning "torch install failed - install manually with: pip $($args -join ' ')"
     exit 1
 }
 Write-Host "  [+] torch + torchvision installed for $label"
