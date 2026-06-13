@@ -76,3 +76,6 @@
 [submodule "custom_nodes/ComfyUI_UltimateSDUpscale"]
 	path = custom_nodes/ComfyUI_UltimateSDUpscale
 	url = git@github.com:ssitu/ComfyUI_UltimateSDUpscale.git
+[submodule "custom_nodes/comfyui_text_to_pose"]
+	path = custom_nodes/comfyui_text_to_pose
+	url = https://github.com/logicalor/comfyui_text_to_pose

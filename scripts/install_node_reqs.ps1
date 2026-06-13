@@ -1,13 +1,17 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Walk custom_nodes/ and `pip install -r requirements.txt` for each pack
-  that has one. Also installs ComfyScript editable (it uses pyproject.toml).
+  Walk custom_nodes/ and provision each pack: `pip install -r requirements.txt`
+  (if present) then run `install.py` (if present, the ComfyUI-Manager convention).
+  Also installs ComfyScript editable (it uses pyproject.toml).
 
 .DESCRIPTION
   Called by setup.bat phase [5/6].
   - Skips __pycache__, .git, hidden dirs
-  - Logs each pack's result (installed / no-reqs / failed)
+  - For each pack: installs requirements.txt, THEN runs install.py if present
+    (e.g. comfyui_text_to_pose's install.py clones its t2p model library;
+    Impact-Pack/Subpack fetch their extra deps). install.py runs from the pack dir.
+  - Logs each pack's result (installed / no-reqs / install.py / failed)
   - Returns non-zero exit if any pack fails (setup.bat will warn but continue)
 #>
 
@@ -19,23 +23,46 @@ $results = @()
 $failed  = @()
 
 Get-ChildItem $cnDir -Directory | Where-Object { $_.Name -notin '__pycache__','ComfyScript' } | ForEach-Object {
-    $pack = $_.Name
+    $pack    = $_.Name
     $reqFile = Join-Path $_.FullName 'requirements.txt'
+    $instPy  = Join-Path $_.FullName 'install.py'
+    $hasReq  = Test-Path $reqFile
+    $hasInst = Test-Path $instPy
 
-    if (-not (Test-Path $reqFile)) {
+    if (-not $hasReq -and -not $hasInst) {
         $results += [PSCustomObject]@{ Pack=$pack; Status='no-reqs' }
         return
     }
 
-    Write-Host "  -> $pack ..." -NoNewline
-    $out = & pip install -U -r $reqFile 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host " ok"
-        $results += [PSCustomObject]@{ Pack=$pack; Status='installed' }
-    } else {
-        Write-Host " FAILED"
-        $results += [PSCustomObject]@{ Pack=$pack; Status='failed' }
-        $failed  += [PSCustomObject]@{ Pack=$pack; Output=($out | Out-String) }
+    if ($hasReq) {
+        Write-Host "  -> $pack (requirements.txt) ..." -NoNewline
+        $out = & pip install -U -r $reqFile 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host " ok"
+            $results += [PSCustomObject]@{ Pack=$pack; Status='installed' }
+        } else {
+            Write-Host " FAILED"
+            $results += [PSCustomObject]@{ Pack=$pack; Status='failed' }
+            $failed  += [PSCustomObject]@{ Pack=$pack; Output=($out | Out-String) }
+        }
+    }
+
+    # install.py: ComfyUI-Manager runs this on install; mirror it so a plain setup.bat
+    # provisions packs that need more than pip (e.g. comfyui_text_to_pose clones its t2p lib).
+    if ($hasInst) {
+        Write-Host "  -> $pack (install.py) ..." -NoNewline
+        Push-Location $_.FullName
+        $out = & python install.py 2>&1
+        $rc  = $LASTEXITCODE
+        Pop-Location
+        if ($rc -eq 0) {
+            Write-Host " ok"
+            $results += [PSCustomObject]@{ Pack="$pack (install.py)"; Status='install.py' }
+        } else {
+            Write-Host " FAILED"
+            $results += [PSCustomObject]@{ Pack="$pack (install.py)"; Status='failed' }
+            $failed  += [PSCustomObject]@{ Pack="$pack (install.py)"; Output=($out | Out-String) }
+        }
     }
 }
 
