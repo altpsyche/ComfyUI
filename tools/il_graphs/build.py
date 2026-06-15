@@ -27,12 +27,15 @@ def main():
            "IL_LCM": base_req}   # cfg 1.5 ok: min_cfg rule only checks CFGGuider, LCM uses KSampler
 
     # One IL_Dataset_<name> graph per roster character + a roster.json manifest for the train scripts.
-    ds_req = base_req + ["ImpactWildcardEncode", "FaceDetailer", "IPAdapterAdvanced"]
+    # A base-tagged (text-only) graph has no IPAdapter, so its require list drops IPAdapterAdvanced
+    # (the validator treats a missing required node as a hard error).
+    ds_base = base_req + ["ImpactWildcardEncode", "FaceDetailer"]
     roster = []
     for cname, spec in CHARACTERS.items():
         gname = f"IL_Dataset_{cname}"
-        graphs[gname] = build_dataset(cname, spec["id"], spec["outfit"], spec.get("vary_outfit", False))
-        req[gname] = ds_req
+        graphs[gname] = build_dataset(cname, spec["id"], spec["outfit"],
+                                      spec.get("vary_outfit", False), spec.get("base", ""))
+        req[gname] = ds_base + ([] if spec.get("base", "").strip() else ["IPAdapterAdvanced"])
         roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",
                        "prune": spec.get("prune", "")})
     (ROOT / "tools/lora_train/roster.json").write_text(json.dumps(roster, indent=2), encoding="utf-8")

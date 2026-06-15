@@ -37,18 +37,34 @@ NOTE_C, NOTE_BG = "#432", "#322"
 #   outfit       clothes, kept separate from identity.
 #   vary_outfit  True -> __outfit__ wildcard (swappable-outfit LoRA); False -> fixed signature outfit.
 #   prune        (optional) exact tags train_lora bakes into the trigger; "" = leave identity promptable.
+#   base         (optional) known danbooru character tag prepended to the prompt. When set, the tag
+#                carries a consistent face, so the hero+IPAdapter scaffold is auto-OFF (pure-text path).
+#                Paste the tag RAW (parens and all, e.g. "ganyu (genshin impact)") — build_dataset
+#                escapes the parens so CLIP doesn't read them as prompt weights. "" (default) =
+#                original face via the in-graph hero + light IPAdapter.
 CHARACTERS = {
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",
         "outfit": "cream knit sweater, blue jeans",
         "vary_outfit": False,
         "prune": "",
+        "base": "",
     },
     "kael": {
         "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
         "outfit": "brown aviator jacket, white shirt",
         "vary_outfit": False,
         "prune": "",
+        "base": "",
+    },
+    # Demo of the text-only base path: a known danbooru character carries the face (IPAdapter OFF).
+    # Swap "base" to ANY Danbooru-2024 character your checkpoint renders reliably before generating.
+    "nyx": {
+        "id": "1girl, solo",                  # keep id minimal; the base tag supplies the face
+        "outfit": "casual hoodie, jeans",
+        "vary_outfit": False,
+        "prune": "",
+        "base": "ganyu (genshin impact)",
     },
 }
 # Suffix that turns the identity tags into a clean hero portrait (the IPAdapter face source).
