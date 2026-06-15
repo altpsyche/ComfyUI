@@ -143,7 +143,9 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
         "Wildcards: outfit/pose/angle/framing/expression .txt in ComfyUI-Impact-Pack/wildcards/."],
         pos=(-1060, 500), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
 
-    add_finish(b, h, f"dataset/{name}", x=1100)
+    # SaveImage splits the prefix on the LAST "/": "dataset/<name>/<name>" => a real per-character
+    # subfolder output/dataset/<name>/ (just "dataset/<name>" would dump every character into output/dataset/).
+    add_finish(b, h, f"dataset/{name}/{name}", x=1100)
     b.group("Load + Seeds", [ck, vae, hseed, gseed, clip, neg], "#535")
     b.group("Hero portrait (identity source)", [hpos, hlat, hks, hdec, hprev], "#525")
     b.group("IPAdapter face lock", [ipl, ipa], "#525")
