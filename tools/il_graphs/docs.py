@@ -78,18 +78,19 @@ DOCS = {
      "Wildcards live in custom_nodes/ComfyUI-Impact-Pack/wildcards/ (outfit / pose / angle / framing / expression .txt).",
      "Outfit: signature (fixed) by default; set vary_outfit=True in the roster for a swappable-outfit LoRA.",
      "Face detailer uses a pose-NEUTRAL identity prompt so re-rolled crops don't fight the body pose."]),
-  "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF). Re-poses ONE original "
-    "hero portrait into many varied shots while holding identity AND the hero's art style. The hero "
-    "is rendered in your Illustrious checkpoint (so style is preserved); Qwen-Edit only changes "
-    "pose/angle/expression per a wildcard instruction. Needs scripts/install_qwen_edit.ps1 + the "
-    "ComfyUI-GGUF node.",
+  "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF) -- SELF-CONTAINED, two "
+    "stages. STAGE 1 renders ONE hero from this character's id tags in your Illustrious checkpoint "
+    "(fixed Hero Seed + HERO preview). STAGE 2 re-poses that hero into many varied shots holding "
+    "identity AND art style, per a wildcard instruction. A brand-new character needs NO pre-existing "
+    "image. Needs scripts/install_qwen_edit.ps1 + the ComfyUI-GGUF node.",
     "Best-consistency dataset bootstrap for a FULLY-ORIGINAL character (no danbooru anchor needed).",
-    ["Render an original portrait in IL_1_Base (your style); put it in ComfyUI/input/ and select it in 'HERO >> LOAD'.",
-     "Set the Save prefix to dataset/<name>/<name>.",
-     "Reroll the Edit-instruction seed (batch-queue ~40) to fill output/dataset/<name>/ with varied poses/angles.",
+    ["STAGE 1: reroll the Hero Seed and watch HERO preview until you like the face; then leave it fixed.",
+     "STAGE 2: reroll the Edit-instruction seed (batch-queue ~40) to fill output/dataset/<name>/ with varied poses/angles.",
+     "Bring your own hero instead? drag the 'HERO override' LoadImage's IMAGE into 'Scale ref'.",
      "Curate the on-model ~30 in place, then: train_lora.ps1 -Char <name> (same flow as the hero/IPAdapter route).",
      "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
-    ["Lightning 4-step LoRA -> KSampler 6 steps / cfg 1.0 / euler / simple (fast; makes Q5 practical on 16 GB).",
+    ["STAGE 1 hero: euler_a / normal / 30 / cfg 5, 832x1216, your checkpoint (id-driven prompt).",
+     "Lightning 4-step LoRA -> edit KSampler 6 steps / cfg 1.0 / euler / simple (fast; makes Q5 practical on 16 GB).",
      "Multiple-angles LoRA (strength ~0.8) drives camera-angle variety; lower it if identity drifts.",
      "Reference-latent-method nodes are kept ON (needed for the repackaged GGUF build).",
      "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",

@@ -202,22 +202,47 @@ QE_LIGHTNING = "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
 QE_ANGLES = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
 
 
-def build_dataset_edit(name="edit", hero=""):
-    """FRONTIER dataset generator: re-pose ONE original hero into many varied shots with
-    Qwen-Image-Edit-2511 (GGUF), holding identity + the hero's art style. One graph per roster
-    character (IL_DatasetEdit_<name>); the trainer reads output/dataset/<name>/ as usual.
+def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero=""):
+    """FRONTIER dataset generator (self-contained): generate ONE original hero, then re-pose it into
+    many varied shots with Qwen-Image-Edit-2511 (GGUF), holding identity + art style. One graph per
+    roster character (IL_DatasetEdit_<name>); the trainer reads output/dataset/<name>/ as usual.
 
-    Flow (proven against the live ComfyUI, 2026-06-15): LoadImage(hero) -> FluxKontextImageScale ->
-    TextEncodeQwenImageEditPlus (the scaled hero + a wildcard instruction) -> KSampler on the GGUF
-    model (Lightning 4-step LoRA, 6 steps / cfg 1.0) -> save to output/dataset/<name>/. The hero is
-    rendered in YOUR Illustrious checkpoint, so style is preserved; the edit only changes pose/angle.
-    Reroll the Wildcard seed for variety; curate ~30; then train_lora.ps1 -Char <name> as usual.
+    Stage 1 (bootstrap the hero): an Illustrious text2img renders the character from its `id` tags at
+    a fixed Hero Seed -> HERO preview. Reroll the Hero Seed to pick a face you like; that single image
+    is the identity anchor. Stage 2 (propagate): FluxKontextImageScale -> TextEncodeQwenImageEditPlus
+    (scaled hero + a wildcard instruction) -> KSampler on the GGUF model (Lightning 4-step, 6 steps /
+    cfg 1.0) -> save to output/dataset/<name>/. Because the hero is rendered in YOUR checkpoint, the
+    edits stay on-style; the edit only changes pose/angle/expression. Verified on the live ComfyUI.
 
-    hero: filename in ComfyUI/input/ pre-filled into LoadImage ("" -> "<name>_hero.png" as a hint).
+    identity/outfit: the hero text2img prompt. hero: optional external override filename in input/.
     """
     hero = hero or f"{name}_hero.png"
     b = Builder()
-    # --- model: GGUF + Lightning(+angles) LoRA -> flow-shift + CFGNorm (the 2511 patch chain) ---
+    # --- STAGE 1: Illustrious hero generator (text2img from the character's id; pick a face) ---
+    ck = b.add("CheckpointLoaderSimple", [CKPT], pos=(-3500, -120), title="Checkpoint (Illustrious)")
+    hvae = b.add("VAELoader", [VAE], pos=(-3500, 40), title="VAE (hero)")
+    hseed = b.add("Seed", [SEED, "fixed"], pos=(-3500, 200), title="Hero Seed (fixed = pick the face)")
+    hclip = b.add("CLIPSetLastLayer", [-2], pos=(-3500, 360), title="CLIP skip -2")
+    b.link(ck, "CLIP", hclip, "clip")
+    hpos = b.add("CLIPTextEncode", [identity + (", " + outfit if outfit else "") + REF_SUFFIX],
+                 pos=(-3220, -200), title="Hero prompt (identity)")
+    hneg = b.add("CLIPTextEncode", [NEG], pos=(-3220, -20), title="Negative")
+    b.link(hclip, "CLIP", hpos, "clip"); b.link(hclip, "CLIP", hneg, "clip")
+    hlat = b.add("EmptyLatentImage", [832, 1216, 1], pos=(-3220, 160), title="Hero latent 832x1216")
+    hks = b.add("KSampler", [SEED, "fixed", BASE_STEPS, BASE_CFG, BASE_SAMPLER, BASE_SCHED, 1.0],
+                pos=(-2980, -200), title="Hero KSampler")
+    b.link(ck, "MODEL", hks, "model"); b.link(hpos, "CONDITIONING", hks, "positive")
+    b.link(hneg, "CONDITIONING", hks, "negative"); b.link(hlat, "LATENT", hks, "latent_image")
+    b.link(hseed, "int", hks, "seed")
+    hdec = b.add("VAEDecode", [], pos=(-2980, -20), title="Hero decode")
+    b.link(hks, "LATENT", hdec, "samples"); b.link(hvae, "VAE", hdec, "vae")
+    hprev = b.add("PreviewImage", [], pos=(-3220, 320), title="HERO preview (reroll Hero Seed to pick the face)")
+    b.link(hdec, "IMAGE", hprev, "images")
+    # optional override: drag this node's IMAGE into 'Scale ref' to use your own hero instead of stage 1.
+    himg = b.add("LoadImage", [hero, "image"], pos=(-3500, 500),
+                 title=f"HERO override (optional): drag IMAGE -> 'Scale ref' to use {hero}")
+
+    # --- STAGE 2 model: GGUF + Lightning(+angles) LoRA -> flow-shift + CFGNorm (the 2511 patch chain) ---
     gguf = b.add("UnetLoaderGGUF", [QE_GGUF], pos=(-2600, -100), title="Qwen-Edit GGUF (Q5)")
     llora = b.add("LoraLoaderModelOnly", [QE_LIGHTNING, 1.0], pos=(-2600, 40), title="Lightning 4-step LoRA")
     alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, 0.8], pos=(-2600, 180), title="Multiple-angles LoRA")
@@ -229,10 +254,9 @@ def build_dataset_edit(name="edit", hero=""):
     clip = b.add("CLIPLoader", [QE_CLIP, "qwen_image", "default"], pos=(-2600, 320), title="Qwen 2.5-VL text encoder")
     vae = b.add("VAELoader", [QE_VAE], pos=(-2600, 470), title="Qwen Image VAE")
 
-    # --- hero reference (set this to YOUR Illustrious-rendered hero in input/) ---
-    himg = b.add("LoadImage", [hero, "image"], pos=(-2600, 600), title=f"HERO >> LOAD ({hero} in input/)")
+    # the generated hero (stage 1) feeds the edit; drag the override LoadImage here to use your own.
     scale = b.add("FluxKontextImageScale", [], pos=(-2300, 620), title="Scale ref")
-    b.link(himg, "IMAGE", scale, "image")
+    b.link(hdec, "IMAGE", scale, "image")
 
     # --- instruction: wildcards vary pose/angle/expression while identity is held by the ref ---
     wtext = ("same character, identical face and hair and outfit, keep the same art style, "
@@ -265,20 +289,23 @@ def build_dataset_edit(name="edit", hero=""):
     b.link(ks, "LATENT", vdec, "samples"); b.link(vae, "VAE", vdec, "vae")
 
     note = b.add("Note", [
-        f"QWEN-EDIT DATASET TOOL ('{name}') -- re-pose ONE original hero into a varied training set.\n"
-        "1. Render an original portrait in IL_1_Base (YOUR style); put it in ComfyUI/input/ and pick it\n"
-        "   in 'HERO >> LOAD'. (Style is preserved by the edit; identity comes from this one image.)\n"
-        "2. Set the Save prefix to dataset/<yourname>/<yourname>.\n"
-        "3. Reroll the Edit-instruction seed (batch-queue ~40) -> output/dataset/<yourname>/.\n"
-        "4. Curate the best 25-40, then: tools/lora_train/train_lora.ps1 -Char <yourname>.\n"
+        f"QWEN-EDIT DATASET TOOL ('{name}') -- self-contained: it MAKES the hero, then re-poses it.\n"
+        "1. STAGE 1: reroll 'Hero Seed' and watch HERO preview until you like the face (it's rendered\n"
+        f"   from this character's id tags in YOUR checkpoint). Then leave Hero Seed fixed on that value.\n"
+        "2. STAGE 2: reroll the 'Edit instruction' seed (batch-queue ~40) -> output/dataset/" + name + "/.\n"
+        "   Each frame = that hero in a new angle/pose/expression, same identity + art style.\n"
+        "3. Curate the best 25-40, then: tools/lora_train/train_lora.ps1 -Char " + name + ".\n"
+        "Bring your OWN hero instead? drag 'HERO override' LoadImage's IMAGE into 'Scale ref'.\n"
         "Wildcards (__angle__/__pose__/__expression__) live in ComfyUI-Impact-Pack/wildcards/.\n"
         "Too slow / OOM? re-run install_qwen_edit.ps1 -Quant Q4_K_M. Identity drifting? lower the\n"
         "multiple-angles LoRA strength or simplify the instruction."],
         pos=(-2000, 560), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
 
     add_finish(b, (vdec, "IMAGE"), f"dataset/{name}/{name}", x=-360)
+    b.group("Hero generator (Illustrious, STAGE 1)", [ck, hvae, hseed, hclip, hpos, hneg, hlat, hks, hdec, hprev], "#535")
+    b.group("Hero override (optional)", [himg], "#553")
     b.group("Qwen-Edit model + LoRAs", [gguf, llora, alora, msaf, cfgn], "#525")
-    b.group("Encoders + hero", [clip, vae, himg, scale], "#535")
+    b.group("Encoders + scale", [clip, vae, scale], "#535")
     b.group("Instruction + encode", [wild, posenc, negenc, posref, negref, venc, note], "#355")
     b.group("Edit + decode", [ks, vdec], "#553")
     return b.build()

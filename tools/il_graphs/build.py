@@ -28,7 +28,7 @@ def main():
            "IL_LCM": base_req}   # cfg 1.5 ok: min_cfg rule only checks CFGGuider, LCM uses KSampler
     # Qwen-Image-Edit graph: no checkpoint/clip-skip (clip_skip & min_cfg rules are vacuous here --
     # no CLIPSetLastLayer, no CFGGuider; KSampler cfg 1.0 is intended for Lightning).
-    edit_req = ["UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
+    edit_req = ["CheckpointLoaderSimple", "UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
                 "FluxKontextMultiReferenceLatentMethod", "KSampler", "VAEDecode", "SaveImage"]
     # base-tagged (text-only) hero graph has no IPAdapter, so it drops IPAdapterAdvanced.
     ds_base = base_req + ["ImpactWildcardEncode", "FaceDetailer"]
@@ -42,7 +42,7 @@ def main():
         roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",
                        "prune": spec.get("prune", "")})
         egname = f"IL_DatasetEdit_{cname}"
-        graphs[egname] = build_dataset_edit(cname, spec.get("hero", ""))
+        graphs[egname] = build_dataset_edit(cname, spec["id"], spec.get("outfit", ""), spec.get("hero", ""))
         req[egname] = edit_req
         if spec.get("hero_graph"):
             gname = f"IL_Dataset_{cname}"

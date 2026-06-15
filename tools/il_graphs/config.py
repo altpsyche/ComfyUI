@@ -42,8 +42,9 @@ NOTE_C, NOTE_BG = "#432", "#322"
 #                Paste the tag RAW (parens and all, e.g. "ganyu (genshin impact)") — build_dataset
 #                escapes the parens so CLIP doesn't read them as prompt weights. "" (default) =
 #                original face via the in-graph hero + light IPAdapter. (OLD route only.)
-#   hero         (optional) filename in ComfyUI/input/ of this character's hero portrait, pre-filled
-#                into IL_DatasetEdit_<name>'s LoadImage. "" -> defaults to "<name>_hero.png".
+#   hero         (optional) filename in ComfyUI/input/ for the HERO OVERRIDE LoadImage in
+#                IL_DatasetEdit_<name> (use your own image instead of the in-graph Stage-1 render).
+#                "" -> defaults to "<name>_hero.png". Not needed normally -- Stage 1 makes the hero.
 #   hero_graph   (optional) True also emits the OLD IL_Dataset_<name> (hero+IPAdapter / base) graph.
 #                Default False: only the recommended IL_DatasetEdit_<name> (Qwen-Image-Edit) is emitted.
 # Every entry always gets a roster.json line (name/trigger/prune) for the trainer, regardless of route.
