@@ -11,6 +11,7 @@ fully scripted — no per-character file copies, no manual file moving.
 3. [Prerequisites & hardware](#3-prerequisites--hardware)
 4. [Phase 0 — one-time trainer setup](#4-phase-0--one-time-trainer-setup)
 5. [Phase 1 — define the roster](#5-phase-1--define-the-roster)
+   - [Where to edit what (quick map)](#where-to-edit-what-quick-map)
 6. [Phase 2 — generate datasets in ComfyUI](#6-phase-2--generate-datasets-in-comfyui)
    - [6g. RECOMMENDED bootstrap — Qwen-Image-Edit (`IL_DatasetEdit`)](#6g-recommended-bootstrap--qwen-image-edit-il_datasetedit)
 7. [Phase 3 — curate](#7-phase-3--curate)
@@ -172,6 +173,30 @@ train scripts read. Entries with `hero_graph: True` also get the OLD `IL_Dataset
 > **The training bridge is folder-based:** any dataset workflow just needs to save to
 > `output/dataset/<name>/`. `train_lora.ps1 -Char <name>` and `train_all.ps1` (which iterates
 > `roster.json`) then pick it up — independent of which workflow produced the images.
+
+### Where to edit what (quick map)
+
+Two kinds of change: **config/graph** edits need a `python tools/build_il_graphs.py` regenerate (then
+re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/queue the graph, no regenerate.
+
+| Want to change | Edit | After |
+|---|---|---|
+| **Add / remove a character** | `CHARACTERS` in [`tools/il_graphs/config.py`](../il_graphs/config.py) | regenerate |
+| **Character identity** (face/hair/eyes) | that entry's `id` (Stage-1 hero prompt) | regenerate |
+| **Trigger / pruned tags** | `trigger` / `prune` in the entry | regenerate (rewrites `roster.json`) |
+| **Poses** | `custom_nodes/ComfyUI-Impact-Pack/wildcards/pose.txt` | reload graph |
+| **Camera angles** | `…/wildcards/angle.txt` | reload graph |
+| **Expressions** | `…/wildcards/expression.txt` | reload graph |
+| **Framing** (full body / close-up) | `…/wildcards/framing.txt` | reload graph |
+| **The edit instruction template** | `wtext` in `build_dataset_edit()` ([`graphs.py`](../il_graphs/graphs.py)) | regenerate |
+| **Hero render** (checkpoint / sampler / steps / size) | `CKPT`, `BASE_*`, `REF_SUFFIX` in `config.py` | regenerate |
+| **Qwen-Edit knobs** (LoRA strengths, KSampler steps) | `build_dataset_edit()` in `graphs.py` | regenerate |
+| **Qwen-Edit quant** (VRAM/speed) | `scripts/install_qwen_edit.ps1 -Quant Q4_K_M` | re-run installer |
+| **Training params** (rank / optimizer / steps) | `train_lora.ps1` flags — `-Dim`, `-Optimizer`, `-Steps`, … | n/a |
+
+> ⚠️ The wildcard `.txt` files live inside the **Impact-Pack submodule** (untracked by this fork), so
+> they exist on this machine but a fresh clone won't have them. Editing them is per-machine.
+> One wildcard line = one random option per queue; add lines (e.g. `from below`, `dutch angle`) to widen variety.
 
 ## 6. Phase 2 — generate datasets in ComfyUI
 
