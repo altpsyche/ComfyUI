@@ -14,8 +14,7 @@ from .graphs import (build_base, build_refine, build_guided, build_studio,
 def main():
     graphs = {"IL_1_Base": build_base(), "IL_2_Refine": build_refine(), "IL_3_Guided": build_guided(),
               "IL_4_Studio": build_studio(), "IL_5_Max": build_max(),
-              "IL_IPAdapter": build_ipadapter(), "IL_Pose": build_pose(), "IL_LCM": build_lcm(),
-              "IL_DatasetEdit": build_dataset_edit()}
+              "IL_IPAdapter": build_ipadapter(), "IL_Pose": build_pose(), "IL_LCM": build_lcm()}
     base_req = ["CheckpointLoaderSimple", "CLIPSetLastLayer", "KSampler", "VAEDecode", "SaveImage"]
     det_req = base_req + ["UltimateSDUpscale", "FaceDetailer"]
     req = {"IL_1_Base": base_req,
@@ -26,24 +25,30 @@ def main():
                                   "InpaintCropImproved", "InpaintStitchImproved"],
            "IL_IPAdapter": det_req + ["IPAdapterAdvanced"],
            "IL_Pose": det_req + ["ControlNetApplyAdvanced", "OpenposeEditorNode"],
-           "IL_LCM": base_req,   # cfg 1.5 ok: min_cfg rule only checks CFGGuider, LCM uses KSampler
-           # Qwen-Image-Edit graph: no checkpoint/clip-skip (clip_skip & min_cfg rules are vacuous
-           # here -- no CLIPSetLastLayer, no CFGGuider; KSampler cfg 1.0 is intended for Lightning).
-           "IL_DatasetEdit": ["UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
-                              "FluxKontextMultiReferenceLatentMethod", "KSampler", "VAEDecode", "SaveImage"]}
-
-    # One IL_Dataset_<name> graph per roster character + a roster.json manifest for the train scripts.
-    # A base-tagged (text-only) graph has no IPAdapter, so its require list drops IPAdapterAdvanced
-    # (the validator treats a missing required node as a hard error).
+           "IL_LCM": base_req}   # cfg 1.5 ok: min_cfg rule only checks CFGGuider, LCM uses KSampler
+    # Qwen-Image-Edit graph: no checkpoint/clip-skip (clip_skip & min_cfg rules are vacuous here --
+    # no CLIPSetLastLayer, no CFGGuider; KSampler cfg 1.0 is intended for Lightning).
+    edit_req = ["UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
+                "FluxKontextMultiReferenceLatentMethod", "KSampler", "VAEDecode", "SaveImage"]
+    # base-tagged (text-only) hero graph has no IPAdapter, so it drops IPAdapterAdvanced.
     ds_base = base_req + ["ImpactWildcardEncode", "FaceDetailer"]
+
+    # roster.json (name/trigger/prune) is the trainer's source of truth -- written for EVERY character
+    # regardless of which dataset workflow makes the images. Each character gets the recommended
+    # IL_DatasetEdit_<name> (Qwen-Image-Edit); the OLD IL_Dataset_<name> is emitted only when the
+    # entry sets hero_graph=True (the hero+IPAdapter / base-danbooru route).
     roster = []
     for cname, spec in CHARACTERS.items():
-        gname = f"IL_Dataset_{cname}"
-        graphs[gname] = build_dataset(cname, spec["id"], spec["outfit"],
-                                      spec.get("vary_outfit", False), spec.get("base", ""))
-        req[gname] = ds_base + ([] if spec.get("base", "").strip() else ["IPAdapterAdvanced"])
         roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",
                        "prune": spec.get("prune", "")})
+        egname = f"IL_DatasetEdit_{cname}"
+        graphs[egname] = build_dataset_edit(cname, spec.get("hero", ""))
+        req[egname] = edit_req
+        if spec.get("hero_graph"):
+            gname = f"IL_Dataset_{cname}"
+            graphs[gname] = build_dataset(cname, spec["id"], spec["outfit"],
+                                          spec.get("vary_outfit", False), spec.get("base", ""))
+            req[gname] = ds_base + ([] if spec.get("base", "").strip() else ["IPAdapterAdvanced"])
     (ROOT / "tools/lora_train/roster.json").write_text(json.dumps(roster, indent=2), encoding="utf-8")
 
     for name, g in graphs.items():
@@ -56,6 +61,18 @@ def main():
             encoding="utf-8")
         (OUT / f"{name}.md").write_text(md(name, g), encoding="utf-8")
         print(f"wrote {name}.json: {len(g['nodes'])} nodes, {len(g['links'])} links  (+ rules.toml + md)")
+
+    # Prune stale dataset-family workflows (character removed/renamed, or a route toggled off) so the
+    # ComfyUI list doesn't keep orphans. Scoped to the build-managed IL_Dataset* family only.
+    removed = []
+    for jf in OUT.glob("IL_Dataset*.json"):
+        if jf.stem not in graphs:
+            for fp in (jf, OUT / f"{jf.stem}.rules.toml", OUT / f"{jf.stem}.md"):
+                if fp.exists():
+                    fp.unlink()
+            removed.append(jf.stem)
+    if removed:
+        print(f"removed stale: {', '.join(sorted(removed))}")
 
 
 if __name__ == "__main__":

@@ -38,8 +38,8 @@ fully scripted — no per-character file copies, no manual file moving.
 
 | Route | Best for | How it propagates | Section |
 |---|---|---|---|
-| **Qwen-Image-Edit** (`IL_DatasetEdit`) | **Fully-original characters** (recommended) | An image-edit model **re-poses the whole hero** (face + body + outfit) into new angles/poses while holding identity + your art style | [§6g](#6g-recommended-bootstrap--qwen-image-edit-il_datasetedit) |
-| **Hero + light IPAdapter** (`IL_Dataset_<name>`) | The original SDXL-only route; no extra model downloads | A fixed-seed hero feeds a light IPAdapter that locks the **face crop** while a wildcard prompt varies the body | [§6](#6-phase-2--generate-datasets-in-comfyui) |
+| **Qwen-Image-Edit** (`IL_DatasetEdit_<name>`) | **Fully-original characters** (recommended; default) | An image-edit model **re-poses the whole hero** (face + body + outfit) into new angles/poses while holding identity + your art style | [§6g](#6g-recommended-bootstrap--qwen-image-edit-il_datasetedit) |
+| **Hero + light IPAdapter** (`IL_Dataset_<name>`) | SDXL-only / no downloads; opt-in via `hero_graph: True` | A fixed-seed hero feeds a light IPAdapter that locks the **face crop** while a wildcard prompt varies the body | [§6](#6-phase-2--generate-datasets-in-comfyui) |
 
 Both end the same way: curate → `train_lora.ps1`. The trained LoRA — not the dataset — delivers the
 final exact face either way.
@@ -61,11 +61,11 @@ HERO + IPADAPTER route (SDXL-only, no downloads):
 ```powershell
 setup.bat --with-trainer                       # once: trainer venv (multi-GB)
 powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # once: Qwen-Edit model stack (~23 GB)
-python tools/build_il_graphs.py                # emits IL_DatasetEdit (+ the IL_Dataset_<name> route)
-# In ComfyUI: render an original hero in IL_1_Base -> put it in ComfyUI/input/.
-# Open IL_DatasetEdit: HERO >> LOAD = your hero, Save prefix = dataset/<name>/<name>,
-#   batch-queue the Edit-instruction seed ~40x, curate output/dataset/<name>/ to the best 25-40.
-.\tools\lora_train\train_lora.ps1 -Char <name> # captions + trains
+python tools/build_il_graphs.py                # emits IL_DatasetEdit_<name> per roster char + roster.json
+# In ComfyUI: render an original hero in IL_1_Base -> save it as <name>_hero.png in ComfyUI/input/.
+# Open IL_DatasetEdit_<name> (hero + Save prefix already wired): batch-queue the Edit-instruction
+#   seed ~40x, then curate output/dataset/<name>/ to the best 25-40.
+.\tools\lora_train\train_lora.ps1 -Char <name> # captions + trains  (or train_all.ps1 for the roster)
 # In any IL_* workflow: LoRA bank -> toggle <name>_v1 ON, strength ~0.75, add the trigger word.
 ```
 
@@ -121,34 +121,39 @@ Expect `GPU bf16 matmul`, `sd-scripts library import`, `onnxruntime`, `prodigyop
 Edit the **`CHARACTERS`** dict in [`tools/il_graphs/config.py`](../il_graphs/config.py) — one entry
 per character:
 
+Every entry always gets a **`roster.json`** line (name/trigger/prune — the trainer's source of truth)
+and a recommended **`IL_DatasetEdit_<name>`** Qwen-Image-Edit graph. The old hero+IPAdapter
+`IL_Dataset_<name>` graph is emitted **only** if you set `hero_graph: True`.
+
 ```python
 CHARACTERS = {
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",  # identity ONLY
-        "outfit": "cream knit sweater, blue jeans",   # clothes (kept separate from identity)
-        "vary_outfit": False,   # False = signature outfit; True = __outfit__ wildcard (swappable)
-        "prune": "",            # optional: exact tags to BAKE into the trigger ("" = leave promptable)
-        "base": "",             # "" = original face (hero + light IPAdapter); see below
-        # "trigger": "ariachar"  # optional; defaults to "<name>char"
+        "outfit": "cream knit sweater, blue jeans",   # OLD route only (signature clothes)
+        "prune": "",            # exact tags to BAKE into the trigger ("" = leave promptable)
+        "hero": "aria_hero.png" # file in ComfyUI/input/ pre-filled into IL_DatasetEdit_aria
+        # "trigger": "ariachar" # optional; defaults to "<name>char"
     },
-    "kael": { "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
-              "outfit": "brown aviator jacket, white shirt", "vary_outfit": False, "prune": "", "base": "" },
-    # base SET = text-only path: the danbooru tag carries the face, IPAdapter auto-OFF.
-    "nyx": { "id": "1girl, solo", "outfit": "casual hoodie, jeans", "vary_outfit": False,
-             "prune": "", "base": "ganyu (genshin impact)" },
+    # minimal entry: just identity + trigger/prune via defaults; hero defaults to "<name>_hero.png".
+    "kael": { "id": "1boy, solo", "prune": "" },
+    # OLD hero+IPAdapter route too (and the danbooru base path): set hero_graph=True.
+    "nyx": { "id": "1girl, solo", "outfit": "casual hoodie, jeans", "prune": "",
+             "hero_graph": True, "base": "ganyu (genshin impact)", "vary_outfit": False },
 }
 ```
 
 Field-by-field:
 - **`id`** — identity tags ONLY: hair (colour/length/style), eyes, face marks, body. **No outfit.**
-  Be hyper-specific and weight the face-defining tags (`(green eyes:1.1)`). This is what the LoRA bakes.
-- **`outfit`** — clothes, separate so you can choose signature vs swappable.
-- **`vary_outfit`** — `False`: every image wears `outfit` → the LoRA reproduces that signature look.
-  `True`: the dataset rolls a random outfit per image via the `__outfit__` wildcard → the LoRA learns
-  the face/body and outfit stays promptable (and don't prune outfit tags then).
+  (Mainly used by the OLD route's prompts; the edit route gets identity from your hero image.)
+- **`hero`** — *(edit route)* filename in `ComfyUI/input/` of this character's hero portrait,
+  pre-filled into `IL_DatasetEdit_<name>`'s LoadImage. `""` → defaults to `<name>_hero.png`.
 - **`prune`** — exact tags `train_lora` strips from captions so they fold into the trigger (stronger
   identity lock). `""` keeps identity tags promptable. See [Phase 4](#8-phase-4--caption--train).
-- **`base`** — *(optional)* a known **danbooru character tag** prepended to the prompt. When set, the
+- **`hero_graph`** — *(optional, default `False`)* also emit the OLD `IL_Dataset_<name>`
+  (hero+IPAdapter / `base` danbooru) graph. Leave off if you only use the edit route.
+- **`outfit`** / **`vary_outfit`** — *(OLD route only)* signature vs swappable clothes for the
+  hero+IPAdapter prompts. `vary_outfit: True` rolls the `__outfit__` wildcard. Ignored by the edit route.
+- **`base`** — *(OLD route only)* a known **danbooru character tag** prepended to the prompt. When set, the
   tag carries a consistent face, so the generator drops the hero portrait + IPAdapter entirely
   (**pure-text, no-drift** path — Illustrious knows Danbooru-2024). When `""` (default), identity
   comes from the in-graph hero + light IPAdapter (original-face route). Paste the tag **raw**, parens
@@ -162,15 +167,24 @@ Then **regenerate**:
 ```powershell
 python tools/build_il_graphs.py
 ```
-This writes one **`IL_Dataset_<name>`** workflow per entry (e.g. `IL_Dataset_aria`,
-`IL_Dataset_kael`) to `user/default/workflows/`, plus `tools/lora_train/roster.json` (name / trigger /
-prune) that the train scripts read.
+This writes one **`IL_DatasetEdit_<name>`** workflow per entry (e.g. `IL_DatasetEdit_aria`) to
+`user/default/workflows/`, plus `tools/lora_train/roster.json` (name / trigger / prune) that the
+train scripts read. Entries with `hero_graph: True` also get the OLD `IL_Dataset_<name>` graph.
+(Stale dataset graphs from removed/renamed characters are pruned automatically on regenerate.)
+
+> **The training bridge is folder-based:** any dataset workflow just needs to save to
+> `output/dataset/<name>/`. `train_lora.ps1 -Char <name>` and `train_all.ps1` (which iterates
+> `roster.json`) then pick it up — independent of which workflow produced the images.
 
 ## 6. Phase 2 — generate datasets in ComfyUI
 
-### 6a. Start & open
+> **Which route?** The **recommended** path is **[§6g — Qwen-Image-Edit (`IL_DatasetEdit_<name>`)](#6g-recommended-bootstrap--qwen-image-edit-il_datasetedit)**.
+> §6a–6f below document the **opt-in** hero+IPAdapter route (`IL_Dataset_<name>`, emitted only when a
+> roster entry sets `hero_graph: True`). Both save to `output/dataset/<name>/` and train identically.
+
+### 6a. Start & open (hero+IPAdapter route)
 1. Launch ComfyUI: run **`run_comfy.bat`**; open `http://127.0.0.1:8188`.
-2. Open the workflow **`IL_Dataset_<name>`** from the Workflows menu/sidebar.
+2. Open the workflow **`IL_Dataset_<name>`** from the Workflows menu/sidebar (needs `hero_graph: True`).
    **If a graph is already open, re-open it after any regenerate** — ComfyUI does not auto-refresh a
    loaded graph from disk.
 
@@ -275,9 +289,10 @@ This idempotently downloads (≈23 GB total) into the right `models/` subfolders
 > offloaded to RAM). `Q4_K_M` if you OOM or want speed (noticeably weaker). `Q6_K` only with VRAM
 > headroom. Re-run the installer with a different `-Quant` to swap; it skips files already present.
 
-Then `python tools/build_il_graphs.py` emits the **`IL_DatasetEdit`** workflow.
+Then `python tools/build_il_graphs.py` emits one **`IL_DatasetEdit_<name>`** workflow per roster
+character, with that character's hero filename and `dataset/<name>/<name>` save prefix pre-wired.
 
-#### 6g.2 Graph anatomy (`IL_DatasetEdit`)
+#### 6g.2 Graph anatomy (`IL_DatasetEdit_<name>`)
 
 | Group | Does |
 |---|---|
@@ -290,17 +305,18 @@ Then `python tools/build_il_graphs.py` emits the **`IL_DatasetEdit`** workflow.
 #### 6g.3 Step-by-step
 
 1. **Make a hero.** Render one strong original portrait in **IL_1_Base** (front-ish, clean face,
-   neutral-to-pleasant expression). Save it into **`ComfyUI/input/`** (e.g. `input/aria_hero.png`).
-   This single image is the entire identity source — pick a good one.
-2. **Open `IL_DatasetEdit`** (re-open it after any regenerate — ComfyUI caches loaded graphs).
-3. In **`HERO >> LOAD`** select your hero file.
-4. Set the **Save** node's prefix to `dataset/<name>/<name>` (e.g. `dataset/aria/aria`).
-5. Confirm the **Edit instruction** node's `mode` is **populate** and its seed control is
+   neutral-to-pleasant expression). Save it into **`ComfyUI/input/`** as the character's `hero`
+   filename (defaults to **`<name>_hero.png`**, e.g. `aria_hero.png`). This single image is the
+   entire identity source — pick a good one. (Set a different filename via the roster `hero` field.)
+2. **Open `IL_DatasetEdit_<name>`** (re-open after any regenerate — ComfyUI caches loaded graphs).
+   The **HERO >> LOAD** node and the `dataset/<name>/<name>` save prefix are already wired from the
+   roster; just confirm the hero loaded (if the file wasn't there at build time, pick it now).
+3. Confirm the **Edit instruction** node's `mode` is **populate** and its seed control is
    **randomize** (so each queue rolls a new pose/angle).
-6. Set the **batch count** beside Queue to ~40 and **Queue once** → ~40 varied frames stream into
-   `output/dataset/<name>/`. (There's no batch-of-4 here — one edit per queue — so use a higher
-   batch count than the IPAdapter route.)
-7. Proceed to [curate](#7-phase-3--curate) and [train](#8-phase-4--caption--train) unchanged.
+4. Set the **batch count** beside Queue to ~40 and **Queue once** → ~40 varied frames stream into
+   `output/dataset/<name>/`. (One edit per queue — so use a higher batch count than the IPAdapter route.)
+5. Proceed to [curate](#7-phase-3--curate) and [train](#8-phase-4--caption--train) unchanged
+   (`train_lora.ps1 -Char <name>`, or `train_all.ps1` to do every roster character).
 
 #### 6g.4 The edit instruction (driving variety)
 

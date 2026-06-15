@@ -41,29 +41,32 @@ NOTE_C, NOTE_BG = "#432", "#322"
 #                carries a consistent face, so the hero+IPAdapter scaffold is auto-OFF (pure-text path).
 #                Paste the tag RAW (parens and all, e.g. "ganyu (genshin impact)") — build_dataset
 #                escapes the parens so CLIP doesn't read them as prompt weights. "" (default) =
-#                original face via the in-graph hero + light IPAdapter.
+#                original face via the in-graph hero + light IPAdapter. (OLD route only.)
+#   hero         (optional) filename in ComfyUI/input/ of this character's hero portrait, pre-filled
+#                into IL_DatasetEdit_<name>'s LoadImage. "" -> defaults to "<name>_hero.png".
+#   hero_graph   (optional) True also emits the OLD IL_Dataset_<name> (hero+IPAdapter / base) graph.
+#                Default False: only the recommended IL_DatasetEdit_<name> (Qwen-Image-Edit) is emitted.
+# Every entry always gets a roster.json line (name/trigger/prune) for the trainer, regardless of route.
 CHARACTERS = {
+    # DEFAULT route: Qwen-Image-Edit. Render aria_hero.png into ComfyUI/input/, open IL_DatasetEdit_aria.
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",
-        "outfit": "cream knit sweater, blue jeans",
-        "vary_outfit": False,
         "prune": "",
-        "base": "",
+        "hero": "aria_hero.png",
     },
+    # Minimal entry: identity only; trigger defaults to kaelchar, hero defaults to kael_hero.png.
     "kael": {
         "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
-        "outfit": "brown aviator jacket, white shirt",
-        "vary_outfit": False,
         "prune": "",
-        "base": "",
     },
-    # Demo of the text-only base path: a known danbooru character carries the face (IPAdapter OFF).
+    # OLD hero+IPAdapter route too (hero_graph=True) + the danbooru base path (base-only, IPAdapter OFF).
     # Swap "base" to ANY Danbooru-2024 character your checkpoint renders reliably before generating.
     "nyx": {
         "id": "1girl, solo",                  # keep id minimal; the base tag supplies the face
         "outfit": "casual hoodie, jeans",
         "vary_outfit": False,
         "prune": "",
+        "hero_graph": True,
         "base": "ganyu (genshin impact)",
     },
 }

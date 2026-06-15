@@ -99,8 +99,8 @@ DOCS = {
 
 
 def md(name, g):
-    if name == "IL_DatasetEdit":
-        key = "IL_DatasetEdit"
+    if name.startswith("IL_DatasetEdit"):
+        key = "IL_DatasetEdit"      # shared doc for every IL_DatasetEdit_<char>
     elif name.startswith("IL_Dataset"):
         key = "IL_Dataset"          # shared doc for every IL_Dataset_<char>
     else:

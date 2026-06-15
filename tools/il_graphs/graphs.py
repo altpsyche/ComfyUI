@@ -202,16 +202,20 @@ QE_LIGHTNING = "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
 QE_ANGLES = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
 
 
-def build_dataset_edit(name="edit"):
+def build_dataset_edit(name="edit", hero=""):
     """FRONTIER dataset generator: re-pose ONE original hero into many varied shots with
-    Qwen-Image-Edit-2511 (GGUF), holding identity + the hero's art style.
+    Qwen-Image-Edit-2511 (GGUF), holding identity + the hero's art style. One graph per roster
+    character (IL_DatasetEdit_<name>); the trainer reads output/dataset/<name>/ as usual.
 
     Flow (proven against the live ComfyUI, 2026-06-15): LoadImage(hero) -> FluxKontextImageScale ->
     TextEncodeQwenImageEditPlus (the scaled hero + a wildcard instruction) -> KSampler on the GGUF
     model (Lightning 4-step LoRA, 6 steps / cfg 1.0) -> save to output/dataset/<name>/. The hero is
     rendered in YOUR Illustrious checkpoint, so style is preserved; the edit only changes pose/angle.
     Reroll the Wildcard seed for variety; curate ~30; then train_lora.ps1 -Char <name> as usual.
+
+    hero: filename in ComfyUI/input/ pre-filled into LoadImage ("" -> "<name>_hero.png" as a hint).
     """
+    hero = hero or f"{name}_hero.png"
     b = Builder()
     # --- model: GGUF + Lightning(+angles) LoRA -> flow-shift + CFGNorm (the 2511 patch chain) ---
     gguf = b.add("UnetLoaderGGUF", [QE_GGUF], pos=(-2600, -100), title="Qwen-Edit GGUF (Q5)")
@@ -226,9 +230,9 @@ def build_dataset_edit(name="edit"):
     vae = b.add("VAELoader", [QE_VAE], pos=(-2600, 470), title="Qwen Image VAE")
 
     # --- hero reference (set this to YOUR Illustrious-rendered hero in input/) ---
-    hero = b.add("LoadImage", ["example.png", "image"], pos=(-2600, 600), title="HERO >> LOAD (your original portrait)")
+    himg = b.add("LoadImage", [hero, "image"], pos=(-2600, 600), title=f"HERO >> LOAD ({hero} in input/)")
     scale = b.add("FluxKontextImageScale", [], pos=(-2300, 620), title="Scale ref")
-    b.link(hero, "IMAGE", scale, "image")
+    b.link(himg, "IMAGE", scale, "image")
 
     # --- instruction: wildcards vary pose/angle/expression while identity is held by the ref ---
     wtext = ("same character, identical face and hair and outfit, keep the same art style, "
@@ -274,7 +278,7 @@ def build_dataset_edit(name="edit"):
 
     add_finish(b, (vdec, "IMAGE"), f"dataset/{name}/{name}", x=-360)
     b.group("Qwen-Edit model + LoRAs", [gguf, llora, alora, msaf, cfgn], "#525")
-    b.group("Encoders + hero", [clip, vae, hero, scale], "#535")
+    b.group("Encoders + hero", [clip, vae, himg, scale], "#535")
     b.group("Instruction + encode", [wild, posenc, negenc, posref, negref, venc, note], "#355")
     b.group("Edit + decode", [ks, vdec], "#553")
     return b.build()
