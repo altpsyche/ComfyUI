@@ -85,3 +85,6 @@
 [submodule "custom_nodes/comfyui-reactor-node"]
 	path = custom_nodes/comfyui-reactor-node
 	url = https://codeberg.org/Gourieff/comfyui-reactor-node
+[submodule "custom_nodes/ComfyUI-GGUF"]
+	path = custom_nodes/ComfyUI-GGUF
+	url = https://github.com/city96/ComfyUI-GGUF
