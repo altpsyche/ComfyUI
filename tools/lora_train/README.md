@@ -1,76 +1,335 @@
-# Train character-consistency LoRAs (one or many)
+# Character LoRA training — complete guide (A → Z)
 
-Define your characters once in a **roster**, generate a dataset per character (ComfyUI), set up
-kohya sd-scripts (one-time), then **one command per character** (or one for the whole roster)
-captions + trains. Load each LoRA in any IL workflow's LoRA bank. Fully parameterized — no
-per-character file copies, no manual file moving.
+Train one LoRA per character so that character renders **identically every time** in any IL_*
+workflow. Text prompts and IPAdapter both drift; a trained LoRA is the only thing that locks an
+exact identity. This kit takes you from "no images" to "trained LoRA loaded in the LoRA bank",
+fully scripted — no per-character file copies, no manual file moving.
 
-## 1. Define the roster + generate datasets  (ComfyUI)
+## Contents
+1. [Mental model](#1-mental-model)
+2. [TL;DR](#2-tldr-the-whole-loop)
+3. [Prerequisites & hardware](#3-prerequisites--hardware)
+4. [Phase 0 — one-time trainer setup](#4-phase-0--one-time-trainer-setup)
+5. [Phase 1 — define the roster](#5-phase-1--define-the-roster)
+6. [Phase 2 — generate datasets in ComfyUI](#6-phase-2--generate-datasets-in-comfyui)
+7. [Phase 3 — curate](#7-phase-3--curate)
+8. [Phase 4 — caption + train](#8-phase-4--caption--train)
+9. [Phase 5 — use the LoRA](#9-phase-5--use-the-lora)
+10. [Tuning reference](#10-tuning-reference)
+11. [Troubleshooting](#11-troubleshooting)
+12. [File & setting reference](#12-file--setting-reference)
+13. [Why it's built this way](#13-why-its-built-this-way)
 
-1. Edit the **`CHARACTERS`** roster in `tools/il_graphs/config.py` — one entry per character
-   (`id` = identity tags, `outfit`, optional `vary_outfit`/`prune`). Run `python tools/build_il_graphs.py`.
-   This emits one **`IL_Dataset_<name>`** workflow per character (e.g. `IL_Dataset_aria`,
-   `IL_Dataset_kael`) and a `roster.json` the trainer reads.
-2. Open **`IL_Dataset_<name>`** in ComfyUI. Keep **Hero Seed** fixed; queue once and check the hero
-   portrait — that face gets locked. Reroll Hero Seed until you like it, then leave it fixed.
-3. Reroll the **Gen Seed** and queue ~15× (batch of 4) → ~60 shots land **straight in
-   `output/dataset/<name>/`** (each character its own folder — no collisions, no moving).
-4. **Curate in place:** delete the off-model / melted / duplicate shots, keeping the best
-   **25–40**. Repeat 2–4 for each character's graph.
+---
 
-**Outfit:** by default every shot wears the entry's `outfit` → the LoRA reproduces that *signature*
-outfit. For a **swappable-outfit** LoRA, set `"vary_outfit": True` on that roster entry: the dataset
-varies clothes via the `__outfit__` wildcard so the LoRA learns the face/body, not the clothes — and
-**don't** prune outfit tags at train time so they stay promptable.
+## 1. Mental model
 
-## 2. Set up the trainer venv  (one-time, Blackwell-ready)
+- **One character = one dataset = one LoRA file.** Five characters = five independent LoRAs that
+  never interfere. At render time you toggle whichever you want in the LoRA bank.
+- **The chicken-and-egg** (you can't make consistent images to train on, but you need consistent
+  images to train) is solved by **bootstrapping**: generate ONE good "hero" portrait, propagate
+  that face onto many varied poses/outfits, curate, train.
+- **The dataset doesn't need pixel-perfect faces** — it needs images that are *recognizably the
+  same person*. Curation drops the outliers; the trained LoRA averages the rest into one stable
+  identity. Don't chase a perfect clone in the dataset.
 
-sd-scripts is vendored in-repo as a submodule at **`tools/sd-scripts`** (a fresh `setup.bat`
-initializes it in phase [2/6]). The trainer venv lives at `tools/lora_train/.venv` (gitignored,
-kept out of the submodule) and is provisioned by setup the right way:
+The pipeline per character:
+```
+hero portrait (fixed seed)  ─IPAdapter face lock─┐
+raw checkpoint + wildcard prompt ─► clean base ──► face detailer (hero face) ─► save ─► curate ─► train ─► LoRA
+```
+
+## 2. TL;DR (the whole loop)
+
+```powershell
+setup.bat --with-trainer                       # once: build the trainer venv (multi-GB)
+# edit CHARACTERS in tools/il_graphs/config.py, then:
+python tools/build_il_graphs.py                # emits IL_Dataset_<name> per character + roster.json
+# In ComfyUI: open IL_Dataset_<name>, pick a hero (Hero Seed), batch-queue the Gen Seed ~15x,
+#   curate output/dataset/<name>/ down to the best 25-40.
+.\tools\lora_train\train_all.ps1               # captions + trains every character that has a dataset
+# In any IL_* workflow: LoRA bank -> toggle <name>_v1 ON, strength ~0.75, add the trigger word.
+```
+
+## 3. Prerequisites & hardware
+
+- **GPU:** the kit is tuned for a 16 GB NVIDIA card (RTX 5080 / Blackwell `sm_120`). SDXL LoRA
+  training fits in 16 GB with the defaults (bf16, batch 2, gradient checkpointing, unet-only).
+- **Blackwell note:** `sm_120` needs CUDA 12.8+ PyTorch; the default kohya torch won't run. Phase 0
+  installs `torch 2.7.0 cu128` into a dedicated venv. (Your ComfyUI venv runs cu130 — also fine.)
+- **uv** must be on PATH (the trainer venv uses Python 3.11; the ML stack needs ≤3.12, system Python is too new).
+- **Models on disk:** the default base checkpoint `oneObsession_v19Atypical.safetensors` in
+  `models/checkpoints/`, and the IPAdapter PLUS-FACE model + CLIP-ViT-H (same ones IL_IPAdapter uses).
+
+## 4. Phase 0 — one-time trainer setup
+
+The trainer is **kohya-ss/sd-scripts**, vendored as a submodule at `tools/sd-scripts` (a fresh
+`setup.bat` initializes it in phase [2/6]). Its Python env lives at `tools/lora_train/.venv`,
+separate from ComfyUI's venv. Provision it:
 
 ```powershell
 setup.bat --with-trainer
 ```
+This runs `scripts/install_trainer.ps1`, which (idempotently):
+1. creates `tools/lora_train/.venv` via `uv` (Python 3.11),
+2. installs **torch 2.7.0 + torchvision (cu128)** for Blackwell,
+3. installs the sd-scripts requirements + **onnx/onnxruntime** (the WD14 tagger needs them; they're
+   commented out in sd-scripts' own requirements) + **prodigyopt** (the optimizer),
+4. runs `accelerate config default`,
+5. prints the GPU torch sees.
 
-That runs `scripts/install_trainer.ps1`: creates the venv (uv, Python 3.11 — the ML stack needs
-≤3.12), installs **torch cu128** (the 5080 / sm_120 needs CUDA 12.8+; default kohya torch won't
-run), the sd-scripts requirements, the WD14-tagger deps (onnx/onnxruntime), and `prodigyopt`.
-Idempotent. To (re)provision the trainer alone without a full setup:
-`powershell -ExecutionPolicy Bypass -File scripts\install_trainer.ps1`.
+Re-provision just the trainer (without a full setup):
+`powershell -ExecutionPolicy Bypass -File scripts\install_trainer.ps1`
 
-Sanity-check the venv (GPU compute + sd-scripts + tagger imports):
-`tools\lora_train\.venv\Scripts\python.exe tools\lora_train\verify_env.py`
-
-## 3. Caption + train  (one command)
-
+**Sanity check** (GPU compute + sd-scripts + tagger imports all work):
 ```powershell
-.\tools\lora_train\train_lora.ps1 -Char aria      # one character
-.\tools\lora_train\train_all.ps1                  # every roster character with a curated dataset
+tools\lora_train\.venv\Scripts\python.exe tools\lora_train\verify_env.py
+```
+Expect `GPU bf16 matmul`, `sd-scripts library import`, `onnxruntime`, `prodigyopt`, `accelerate` all `[+]`.
+
+## 5. Phase 1 — define the roster
+
+Edit the **`CHARACTERS`** dict in [`tools/il_graphs/config.py`](../il_graphs/config.py) — one entry
+per character:
+
+```python
+CHARACTERS = {
+    "aria": {
+        "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",  # identity ONLY
+        "outfit": "cream knit sweater, blue jeans",   # clothes (kept separate from identity)
+        "vary_outfit": False,   # False = signature outfit; True = __outfit__ wildcard (swappable)
+        "prune": "",            # optional: exact tags to BAKE into the trigger ("" = leave promptable)
+        # "trigger": "ariachar"  # optional; defaults to "<name>char"
+    },
+    "kael": { "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
+              "outfit": "brown aviator jacket, white shirt", "vary_outfit": False, "prune": "" },
+}
 ```
 
-`train_lora.ps1` (portable — derives every path from its own location) does the rest:
-1. validates `output/dataset/<Char>/` has enough images,
-2. **auto-captions** if needed — WD14 booru tagger, then prepends the trigger and prunes any exact
-   identity tags (trigger + prune come from the roster; pose/expression/framing tags stay),
-3. **derives `num_repeats`** from a target step count, so 15 or 50 images both land near target,
-4. writes the dataset config and trains.
+Field-by-field:
+- **`id`** — identity tags ONLY: hair (colour/length/style), eyes, face marks, body. **No outfit.**
+  Be hyper-specific and weight the face-defining tags (`(green eyes:1.1)`). This is what the LoRA bakes.
+- **`outfit`** — clothes, separate so you can choose signature vs swappable.
+- **`vary_outfit`** — `False`: every image wears `outfit` → the LoRA reproduces that signature look.
+  `True`: the dataset rolls a random outfit per image via the `__outfit__` wildcard → the LoRA learns
+  the face/body and outfit stays promptable (and don't prune outfit tags then).
+- **`prune`** — exact tags `train_lora` strips from captions so they fold into the trigger (stronger
+  identity lock). `""` keeps identity tags promptable. See [Phase 4](#8-phase-4--caption--train).
+- **`trigger`** — the caption keyword (default `<name>char`, e.g. `ariachar`). Use a *rare* string.
 
-`train_all.ps1` reads `roster.json` and runs `train_lora.ps1` for each character that has a curated
-dataset (skipping ones you haven't generated yet). Extra args pass through, e.g. `train_all.ps1 -Steps 2000`.
+Then **regenerate**:
+```powershell
+python tools/build_il_graphs.py
+```
+This writes one **`IL_Dataset_<name>`** workflow per entry (e.g. `IL_Dataset_aria`,
+`IL_Dataset_kael`) to `user/default/workflows/`, plus `tools/lora_train/roster.json` (name / trigger /
+prune) that the train scripts read.
 
-Defaults: trigger `<Char>char` + prune from the roster, base `oneObsession`, dim 16 / alpha 8,
-Prodigy lr 1.0 cosine, min_snr 5, res 1024 + bucketing, bf16, batch 2, `--sdpa`, unet-only, ~1500
-steps. Override any: `-Trigger`, `-Prune`, `-Base <ckpt>`, `-Dim`, `-Alpha`, `-Steps`, `-Epochs`,
-`-Batch`, `-TrainTextEncoder`, `-SkipCaption`. Output → `models/loras/<Char>_v1.safetensors`.
+## 6. Phase 2 — generate datasets in ComfyUI
 
-## 4. Use it  (any IL workflow)
+### 6a. Start & open
+1. Launch ComfyUI: run **`run_comfy.bat`**; open `http://127.0.0.1:8188`.
+2. Open the workflow **`IL_Dataset_<name>`** from the Workflows menu/sidebar.
+   **If a graph is already open, re-open it after any regenerate** — ComfyUI does not auto-refresh a
+   loaded graph from disk.
 
-Open IL_1_Base (or any tier). In the **LoRA bank** node: toggle `aria_v1` ON, strength ~0.75, and
-put the trigger (`ariachar`) in the Positive prompt. Identity flows through base + every detail
-pass automatically.
+### 6b. Pick the hero face (sets the locked identity)
+- Locate the **`Hero Seed (fixed = same face)`** node and the **`HERO preview`** node (top-left).
+- To browse faces: set Hero Seed's control to **randomize**, click **Queue** a few times, watch
+  **HERO preview**.
+- When you like a face, set Hero Seed back to **fixed** (keep that number). That portrait is now the
+  identity anchor for every image.
 
-**Pick the best epoch:** XY-plot strength {0.5, 0.75, 0.9} × a few seeds with the trigger; choose
-the epoch/strength that holds identity without frying style. If identity is weak, raise strength
-or train with the text encoder (drop `--network_train_unet_only`); if it overfits the dataset
-poses, lower num_repeats/epochs.
+### 6c. Generate the set
+- Confirm **Hero Seed = fixed** and **Gen Seed (reroll = variety) = randomize**.
+- Set the **batch count** (the number beside Queue) to ~15 and Queue once → 15 runs × batch 4 =
+  **~60 images**, saved straight to **`output/dataset/<name>/<name>_00001_.png`** …
+- Each is the hero's face in a different pose / camera angle / framing / expression (and outfit, if
+  `vary_outfit`).
+
+### 6d. Graph anatomy (what each group does)
+| Group | Does |
+|---|---|
+| **Load + Seeds** | checkpoint, VAE, CLIP skip −2, two seeds (Hero = identity, Gen = variety), negative. |
+| **Hero portrait (identity source)** | `identity + outfit + portrait suffix` → fixed-seed 832×1216 txt2img → **HERO preview**. The single face source. |
+| **IPAdapter face lock** | `IPAdapterUnifiedLoader (PLUS FACE)` + `IPAdapterAdvanced` (weight **0.85**, **K+V**). Builds a hero-identity model used **only** by the face detailer. |
+| **Variation prompt** | `ImpactWildcardEncode`: `identity + (outfit|__outfit__) + __framing__ __angle__ __pose__ __expression__`. Rolls new values each Gen Seed. |
+| **Batched generation** | `Gen KSampler` on the **raw checkpoint** (clean render) batch 4 → decode. |
+| **Face + Hand Detail** | Face detector + SAM2 → **FaceDetailer on the IPAdapter model** (denoise **0.5**, pose-neutral cond) imposes the hero face in the crop; Hand detailer on the raw model. |
+| **Finish + Save** | `SaveImage` prefix `dataset/<name>/<name>` → `output/dataset/<name>/`. |
+
+Base sampler config (identical to IL_1_Base): `euler_ancestral` / `normal` / 30 steps / CFG 5,
+832×1216 hero / 1024×1024 batch, seed `1234567890`.
+
+### 6e. Wildcards
+A wildcard `__name__` in the prompt is replaced, **each queue**, by a random line from
+`name.txt` in `custom_nodes/ComfyUI-Impact-Pack/wildcards/`. It's plain text substitution, not AI.
+Edit those `.txt` files (one option per line) to change variety:
+
+| Wildcard | File | Examples |
+|---|---|---|
+| `__pose__` | `pose.txt` | standing, sitting, running, arms crossed, leaning… |
+| `__angle__` | `angle.txt` | front view, from side, profile, from behind, from above… |
+| `__framing__` | `framing.txt` | full body, upper body, cowboy shot, close-up portrait… |
+| `__expression__` | `expression.txt` | (ships with Impact-Pack) soft smile, neutral, surprised… |
+| `__outfit__` | `outfit.txt` | only used when `vary_outfit: True` |
+
+> These `.txt` live inside the Impact-Pack **submodule**, so they're not tracked by the fork — they
+> exist on this machine but a fresh clone won't have them. (Known limitation.)
+
+### 6f. Tuning dials (live in the UI — no regenerate needed)
+- **Identity too weak** (face ≠ hero) → `IPAdapter apply` node: raise `weight` 0.85 → 0.95, or
+  `FaceDetailer` `denoise` 0.5 → 0.6.
+- **Face melty / plastic / overcooked** → lower `FaceDetailer` `denoise` → 0.4.
+- **All faces too samey / no expression** → lower `denoise` a touch (fine for training — you prompt
+  expressions at inference).
+- **Want a fixed outfit you forgot to set** → change `__outfit__` back to literal clothes in the
+  Wildcard prompt, or set `vary_outfit` in the roster + regenerate.
+
+When you find values you like, either leave them in the open graph or bake them into
+`tools/il_graphs/graphs.py` so future regenerations keep them.
+
+## 7. Phase 3 — curate
+
+Open `output/dataset/<name>/` and **delete in place** (no moving — they're already where the trainer
+reads them):
+- melted / distorted faces, wrong identity (off-model), bad hands cropping the face, near-duplicates.
+Keep the best **25–40**, varied in pose/angle/expression. Minimum to train is **12**.
+
+Repeat Phases 2–3 for each character (open that character's `IL_Dataset_<name>` graph).
+
+## 8. Phase 4 — caption + train
+
+One command per character, or the whole roster:
+```powershell
+.\tools\lora_train\train_lora.ps1 -Char aria      # one
+.\tools\lora_train\train_all.ps1                  # every character that has a curated dataset
+```
+
+### What `train_lora.ps1` does
+1. **Validates** `output/dataset/<Char>/` exists and has ≥ `-MinImages` (12).
+2. **Auto-captions** (if no `.txt` present): runs the **WD14 tagger**
+   (`SmilingWolf/wd-v1-4-convnextv2-tagger-v2`) to write booru tags, then `prep_captions.py`
+   prepends the **trigger** and removes the **prune** tags (exact match). Trigger + prune come from
+   `roster.json` unless you pass `-Trigger` / `-Prune`.
+3. **Derives `num_repeats`** from the target step count: `repeats = round(Steps × Batch / (images ×
+   Epochs))` — so 15 or 50 images both land near the target step count.
+4. **Writes** `tools/lora_train/.cache/<Char>.toml` (the sd-scripts dataset config).
+5. **Trains** via `accelerate launch sdxl_train_network.py` (from the submodule dir).
+
+### Parameters
+| Param | Default | Meaning |
+|---|---|---|
+| `-Char` | (required) | dataset folder name + LoRA output name |
+| `-Trigger` | roster / `<Char>char` | caption keyword you'll type at inference |
+| `-Prune` | roster / `""` | exact tags to bake into the trigger (e.g. `"auburn hair,green eyes"`) |
+| `-Base` | oneObsession | base checkpoint to train on |
+| `-Dim` / `-Alpha` | 16 / 8 | LoRA rank / alpha |
+| `-Steps` | 1500 | TARGET total steps (drives repeats) |
+| `-Epochs` | 10 | epochs (saves one LoRA per epoch) |
+| `-Batch` | 2 | batch size (raise if you have VRAM headroom) |
+| `-TrainTextEncoder` | off | also train the text encoder (stronger, more VRAM) |
+| `-SkipCaption` | off | use existing captions, don't re-tag |
+
+### sd-scripts settings (baked into the launch)
+LoRA `networks.lora` dim 16 / alpha 8 · optimizer **Prodigy** lr 1.0 (`decouple`,
+`weight_decay=0.01`, `d_coef=1.0`, `use_bias_correction`, `safeguard_warmup`) · `cosine` ·
+`min_snr_gamma 5` · resolution 1024 + bucketing 768–1280 · **bf16** · batch 2 ·
+`gradient_checkpointing` · `cache_latents_to_disk` · **`--sdpa`** (no xformers — avoids Blackwell
+wheel pain) · `no_half_vae` · `--network_train_unet_only` (unless `-TrainTextEncoder`) · seed 42.
+`PYTHONUTF8=1` is set so sd-scripts' unicode progress doesn't crash the cp1252 console.
+
+**Output:** `models/loras/<Char>_v1.safetensors` plus one checkpoint per epoch
+(`<Char>_v1-000001.safetensors` …).
+
+### Prune: bake vs promptable
+- A tag **kept** in captions → the model ties that look to the word → **promptable** (changeable).
+- A tag **pruned** (and visually constant) → folds into the **trigger** → always appears, harder to change.
+- Signature outfit you want locked → add the outfit tags to `prune`. Swappable outfit → keep them.
+- Note: prune is exact-match against WD14 output, so `"long hair"` matches the tag `long hair`, not
+  `(long wavy auburn hair:1.1)`. It's optional fine-tuning — identity is learned from the consistent
+  dataset regardless.
+
+## 9. Phase 5 — use the LoRA
+
+1. Open any IL_* workflow (IL_1_Base, IL_5_Max, …). Every graph has a **`LoRA bank`** node
+   (`Power Lora Loader`) right after the checkpoint.
+2. Toggle `<Char>_v1` **ON**, strength **~0.75**.
+3. Put the **trigger word** (`ariachar`) in the Positive prompt.
+4. Identity now flows through the base render **and** every detail pass automatically (the bank sits
+   upstream of everything).
+
+**Pick the best epoch:** in IL_1_Base, XY-plot LoRA strength {0.5, 0.75, 0.9} × a few seeds with the
+trigger, across the per-epoch files. Choose the epoch/strength that holds identity without frying
+the model's style.
+
+## 10. Tuning reference
+
+| Goal | Dial |
+|---|---|
+| Dataset face ≠ hero | IPAdapter `weight` ↑ (0.85→0.95), FaceDetailer `denoise` ↑ (0.5→0.6) |
+| Dataset face melty | FaceDetailer `denoise` ↓ (0.5→0.4) |
+| LoRA identity weak at inference | train strength ↑ (0.75→0.9), add `-TrainTextEncoder`, more steps |
+| LoRA overfits dataset poses | fewer `-Steps`/`-Epochs`, more varied dataset |
+| LoRA fries style / too strong | LoRA bank strength ↓ (0.75→0.6), lower `-Dim`/`-Alpha` |
+| Swappable outfit | `vary_outfit: True` in roster + keep outfit tags (don't prune) |
+| Hard identical face (last resort) | add a ReActor face-swap pass (not installed — ask) |
+
+## 11. Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| Node/changes not showing in ComfyUI | A loaded graph is cached — **re-open** the workflow after regenerating. |
+| Images for all characters in one folder | Old prefix bug; ensure SaveImage prefix is `dataset/<name>/<name>` (regenerate). |
+| Render looks soft / washed / flat | IPAdapter was on the whole base — fixed: base is raw, IPAdapter is face-only. |
+| Final face differs from hero | Weak face lock — raise IPAdapter weight / FaceDetailer denoise (see §6f). |
+| `__pose__` etc. appear literally in the image | Wildcard file missing or wrong path; files go in `custom_nodes/ComfyUI-Impact-Pack/wildcards/`; reload graph. |
+| `train_lora.ps1` "no dataset" | Generate to `output/dataset/<Char>/` first (SaveImage prefix `dataset/<Char>`). |
+| "only N images (need ≥12)" | Generate/curate more, or lower `-MinImages`. |
+| kohya errors `sm_120 not supported` | Trainer torch isn't cu128 — re-run `scripts/install_trainer.ps1`. |
+| `UnicodeEncodeError` (cp1252) during train | `PYTHONUTF8=1` (the scripts set it; set it manually if you run sd-scripts directly). |
+| OOM during training | drop `-Batch 1`, keep `--network_train_unet_only`. |
+| `ImpactWildcardEncode` missing/red | Impact-Pack not loaded — `setup.bat` / `install_node_reqs.ps1`. |
+
+## 12. File & setting reference
+
+```
+tools/
+  il_graphs/config.py         CHARACTERS roster, base ckpt/VAE/sampler, REF_SUFFIX
+  il_graphs/graphs.py         build_dataset() — the IL_Dataset_<name> graph
+  build_il_graphs.py          regenerate all IL_* workflows + roster.json
+  sd-scripts/                 kohya trainer (submodule)
+  lora_train/
+    README.md                 this file
+    .venv/                    trainer venv (uv, py3.11, torch cu128)   [gitignored]
+    roster.json               name/trigger/prune manifest             [gitignored, generated]
+    .cache/<char>.toml        generated dataset configs               [gitignored]
+    prep_captions.py          trigger-prepend + prune
+    train_lora.ps1            caption + train one character
+    train_all.ps1             train the whole roster
+    verify_env.py             venv sanity check
+custom_nodes/ComfyUI-Impact-Pack/wildcards/   pose/angle/framing/outfit/expression .txt
+output/dataset/<name>/        your generated + curated images
+models/loras/<name>_v1.safetensors   trained output
+scripts/install_trainer.ps1   builds the trainer venv (setup.bat --with-trainer)
+```
+
+Key defaults: checkpoint `oneObsession_v19Atypical` · VAE `sdxl_vae_f16_fix` · CLIP skip −2 ·
+CFG 5 · sampler `euler_ancestral`/`normal`/30 · seed `1234567890` · IPAdapter face lock 0.85 / K+V ·
+FaceDetailer denoise 0.5 · LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
+
+## 13. Why it's built this way
+
+- **Clean base + face-only identity lock.** Putting IPAdapter on the whole render washes/softens it.
+  So the base samples on the raw checkpoint (native quality) and the hero face is imposed only in the
+  FaceDetailer crop. This is the lesson from the earlier comic work: the raw text2img base renders
+  best; lock identity *after*, per face.
+- **K+V (not "V only").** "V only" was needed when IPAdapter ran on the whole scene (K+V bleached it).
+  Face-only, K+V is safe and transfers far more identity.
+- **Hero portrait as the single anchor.** One fixed-seed face, propagated, beats hoping every text
+  gen lands the same face.
+- **Roster + per-character graphs.** Adding a character is one config entry, not edited scripts —
+  scales to N characters with no copy-paste.
+- **Two venvs.** sd-scripts needs Python ≤3.12 + a pinned torch, so it can't share ComfyUI's venv.
+- **Prodigy + `--sdpa`.** Prodigy auto-tunes LR (no bitsandbytes needed); `--sdpa` sidesteps
+  xformers wheels on Blackwell.
