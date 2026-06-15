@@ -99,8 +99,10 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
     # --- IPAdapter PLUS-FACE: builds a hero-identity-locked model used ONLY by the face detailer
     # below (NOT the base render — putting IPAdapter on the whole gen washes/softens it). ---
     ipl = b.add("IPAdapterUnifiedLoader", ["PLUS FACE (portraits)"], pos=(-1400, 60), title="IPAdapter loader")
-    ipa = b.add("IPAdapterAdvanced", [0.7, "ease in-out", "concat", 0, 1, "V only"],
-                pos=(-1400, 230), title="IPAdapter apply (face lock, 0.7)")
+    # K+V (not "V only") transfers far more of the hero's identity — safe here because IPAdapter
+    # touches ONLY the face crop, so the old "K+V bleaches the whole scene" problem can't happen.
+    ipa = b.add("IPAdapterAdvanced", [0.85, "ease in-out", "concat", 0, 1, "K+V"],
+                pos=(-1400, 230), title="IPAdapter apply (face lock, 0.85 K+V)")
     b.link(ck, "MODEL", ipl, "model")
     b.link(ipl, "model", ipa, "model"); b.link(ipl, "ipadapter", ipa, "ipadapter")
     b.link(hdec, "IMAGE", ipa, "image")
@@ -133,7 +135,7 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
     c = dict(msrc=(we, "model"), clip=clip, vae=vae,   # msrc = raw checkpoint (base + hand stay clean)
              cpos=(we, "conditioning"), cneg=(neg, "CONDITIONING"), seed=gseed)
     h = add_detailers(b, c, (mdec, "IMAGE"), x=-60, face_cond=(nface, "CONDITIONING"),
-                      face_model=(ipa, "MODEL"), face_denoise=0.4)   # face pass = IPAdapter hero lock
+                      face_model=(ipa, "MODEL"), face_denoise=0.5)   # face pass = IPAdapter hero lock
 
     note = b.add("Note", [
         f"DATASET TOOL for character '{name}' (one graph per CHARACTERS entry in config).\n"
