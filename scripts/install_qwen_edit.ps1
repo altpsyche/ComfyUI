@@ -53,7 +53,8 @@ function Get-Model($repoId, $src, $destSub, $destName) {
 Write-Host "=== Qwen-Image-Edit-2511 model stack (quant $Quant) ===`n"
 
 # Diffusion model (GGUF) -> models/unet/   (UnetLoaderGGUF reads from models/unet)
-Get-Model 'unsloth/Qwen-Image-Edit-2511-GGUF' "qwen-image-edit-2511-$($Quant.ToLower()).gguf" 'unet'
+# NB: repo filenames keep the quant tag UPPER-case (qwen-image-edit-2511-Q5_K_M.gguf).
+Get-Model 'unsloth/Qwen-Image-Edit-2511-GGUF' "qwen-image-edit-2511-$Quant.gguf" 'unet'
 
 # Text encoder + VAE -> models/text_encoders, models/vae   (shared Qwen-Image components)
 Get-Model 'Comfy-Org/Qwen-Image_ComfyUI' 'split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors' 'text_encoders' 'qwen_2.5_vl_7b_fp8_scaled.safetensors'
@@ -65,6 +66,6 @@ if (-not $SkipAnglesLora) {
     Get-Model 'fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA' 'qwen-image-edit-2511-multiple-angles-lora.safetensors' 'loras'
 }
 
-Write-Host "`n[+] done. In ComfyUI use: UnetLoaderGGUF (qwen-image-edit-2511-$($Quant.ToLower()).gguf),"
+Write-Host "`n[+] done. In ComfyUI use: UnetLoaderGGUF (qwen-image-edit-2511-$Quant.gguf),"
 Write-Host "    CLIPLoader (qwen_2.5_vl_7b_fp8_scaled, type qwen_image), VAELoader (qwen_image_vae),"
 Write-Host "    LoraLoaderModelOnly (Lightning 4-step) -> KSampler 6 steps / cfg 1.0 / euler / simple."
