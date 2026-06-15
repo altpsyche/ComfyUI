@@ -20,10 +20,12 @@ def main():
     ap.add_argument("folder", help="folder of images + WD14 .txt captions")
     ap.add_argument("--trigger", required=True, help="unique trigger token, e.g. ariacharA")
     ap.add_argument("--prune", default="",
-                    help="comma-separated tags (substring match) to remove so they bake into the trigger")
+                    help="comma-separated tags to remove (exact, case-insensitive match — so "
+                         "pruning 'hair' won't also nuke 'hair ornament'). These bake into the trigger.")
     args = ap.parse_args()
 
-    prune = [t.strip().lower() for t in args.prune.split(",") if t.strip()]
+    prune = {t.strip().lower() for t in args.prune.split(",") if t.strip()}
+    trig = args.trigger.lower()
     folder = pathlib.Path(args.folder)
     txts = sorted(folder.glob("*.txt"))
     if not txts:
@@ -32,12 +34,11 @@ def main():
     changed = 0
     for f in txts:
         tags = [t.strip() for t in f.read_text(encoding="utf-8").split(",") if t.strip()]
-        tags = [t for t in tags if not any(p in t.lower() for p in prune)]
-        tags = [t for t in tags if t.lower() != args.trigger.lower()]   # avoid dupes on re-run
-        tags = [args.trigger] + tags
+        tags = [t for t in tags if t.lower() not in prune and t.lower() != trig]
+        tags = [args.trigger] + tags                    # trigger first (protected by keep_tokens=1)
         f.write_text(", ".join(tags), encoding="utf-8")
         changed += 1
-    print(f"prepped {changed} captions in {folder} (trigger={args.trigger!r}, pruned {len(prune)} patterns)")
+    print(f"prepped {changed} captions in {folder} (trigger={args.trigger!r}, pruned {len(prune)} tags)")
 
 
 if __name__ == "__main__":

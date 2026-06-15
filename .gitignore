@@ -26,3 +26,6 @@ web_custom_versions/
 filtered-openapi.yaml
 uv.lock
 .comfy_environment
+
+# generated per-character training dataset configs
+tools/lora_train/.cache/

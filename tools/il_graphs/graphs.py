@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .builder import Builder
-from .config import (CKPT, VAE, SEED, NEG, CHAR, REF_SUFFIX,
+from .config import (CKPT, VAE, SEED, NEG, CHAR, CHAR_NAME, REF_SUFFIX,
                      BASE_SAMPLER, BASE_SCHED, BASE_STEPS, BASE_CFG, NOTE_C, NOTE_BG)
 from .layers import (core, add_upscale, add_detailers, add_face_inpaint,
                      add_bg, add_finish)
@@ -128,15 +128,18 @@ def build_dataset():
     h = add_detailers(b, c, (mdec, "IMAGE"), x=-60, face_cond=(nface, "CONDITIONING"))
 
     note = b.add("Note", [
-        "DATASET TOOL — build a character-LoRA training set.\n"
-        "1. Edit CHAR in tools/il_graphs/config.py (one character, weighted identity tags).\n"
-        "2. Run with Hero Seed fixed; pick a hero portrait you like (it sets the face).\n"
-        "3. Reroll Gen Seed repeatedly (batch of 4) -> ~60 varied shots in output/dataset/.\n"
-        "4. Curate the on-model ~30, caption (WD14 + trigger token), train the LoRA.\n"
+        "DATASET TOOL — build a character-LoRA training set. One character per run.\n"
+        "1. Set the character: edit the 'Character identity' prompt + the SaveImage prefix\n"
+        "   ('dataset/<name>') here in the UI -- no regen, no file moving. Images for each\n"
+        "   character land in their own output/dataset/<name>/ folder.\n"
+        "2. Hero Seed fixed; pick a hero portrait you like (it sets the face).\n"
+        "3. Reroll Gen Seed (batch of 4) -> ~60 varied shots straight into that folder.\n"
+        "4. Delete the off-model ones IN PLACE (curation), then run:\n"
+        "     tools/lora_train/train_lora.ps1 -Char <name>   (auto-captions + trains)\n"
         "Wildcards: pose/angle/framing/expression .txt in ComfyUI-Impact-Pack/wildcards/."],
         pos=(-1060, 500), title="How to use", color=NOTE_C, bgcolor=NOTE_BG)
 
-    add_finish(b, h, "dataset/char", x=1100)
+    add_finish(b, h, f"dataset/{CHAR_NAME}", x=1100)
     b.group("Load + Seeds", [ck, vae, hseed, gseed, clip, neg], "#535")
     b.group("Hero portrait (identity source)", [hpos, hlat, hks, hdec], "#525")
     b.group("IPAdapter face lock", [ipl, ipa], "#525")

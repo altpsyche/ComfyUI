@@ -1,20 +1,22 @@
 # Train a character-consistency LoRA
 
-End-to-end: generate a dataset (ComfyUI), set up kohya sd-scripts (one-time), caption, train,
-then load the LoRA in any IL workflow's LoRA bank. Repeat per character (2 separate LoRAs).
+End-to-end: generate a dataset (ComfyUI), set up kohya sd-scripts (one-time), then **one command**
+captions + trains. Load the result in any IL workflow's LoRA bank. One LoRA per character; the
+flow is fully parameterized — no per-character file copies, no manual file moving.
 
-## 1. Generate the dataset  (ComfyUI — manual)
+## 1. Generate the dataset  (ComfyUI)
 
-1. Edit `CHAR` in `tools/il_graphs/config.py` to character A's weighted identity tags; run
-   `python tools/build_il_graphs.py`.
-2. Open **IL_Dataset** in ComfyUI. Keep **Hero Seed** fixed; queue once and check the hero
-   portrait (PREVIEW the "Hero decode") — that face is what gets locked. Reroll Hero Seed until
-   you like it, then leave it fixed.
-3. Reroll the **Gen Seed** and queue ~15 times (batch of 4 each) → ~60 shots land in
-   `output/dataset/char/`.
-4. **Curate** down to the best **25–40** on-model, pose/angle-varied images. Delete
-   melted/merged/off-color/duplicate faces. Move them to `output/dataset/charA/`.
-5. Repeat 1–4 for character B into `output/dataset/charB/` (re-edit `CHAR`, regenerate).
+1. Open **IL_Dataset**. Set the character: edit the **Character identity** prompt and the
+   **SaveImage prefix** to `dataset/<name>` (e.g. `dataset/aria`) — both in the UI, no regen.
+   (Or set `CHAR_NAME`/`CHAR` in `tools/il_graphs/config.py` and re-run `build_il_graphs.py`.)
+2. Keep **Hero Seed** fixed; queue once and check the hero portrait — that face gets locked.
+   Reroll Hero Seed until you like it, then leave it fixed.
+3. Reroll the **Gen Seed** and queue ~15× (batch of 4) → ~60 shots land **straight in
+   `output/dataset/<name>/`** (each character has its own folder — no collisions, no moving).
+4. **Curate in place:** delete the off-model / melted / duplicate shots, keeping the best
+   **25–40**. That's it — they're already where the trainer expects them.
+
+For a second character, change the prompt + SaveImage prefix to `dataset/<other>` and repeat.
 
 ## 2. Set up the trainer venv  (one-time, Blackwell-ready)
 
@@ -35,43 +37,30 @@ Idempotent. To (re)provision the trainer alone without a full setup:
 Sanity-check the venv (GPU compute + sd-scripts + tagger imports):
 `tools\lora_train\.venv\Scripts\python.exe tools\lora_train\verify_env.py`
 
-## 3. Caption  (venv active, run from the submodule dir)
+## 3. Caption + train  (one command)
 
 ```powershell
-cd C:/Users/vsiva/dev/ComfyUI/tools/sd-scripts
-# WD14 booru tags (matches Illustrious' training distribution):
-python finetune/tag_images_by_wd14_tagger.py --onnx --repo_id SmilingWolf/wd-v1-4-convnextv2-tagger-v2 `
-  --batch_size 4 "C:/Users/vsiva/dev/ComfyUI/output/dataset/charA"
-# Then prepend a unique trigger + bake identity tags:
-python "C:/Users/vsiva/dev/ComfyUI/tools/lora_train/prep_captions.py" `
-  "C:/Users/vsiva/dev/ComfyUI/output/dataset/charA" --trigger ariacharA `
-  --prune "auburn hair,long hair,wavy hair,green eyes,freckles"
+.\tools\lora_train\train_lora.ps1 -Char aria -Prune "auburn hair,long hair,green eyes,freckles"
 ```
 
-Keep variable tags (pose/expression/framing/background); prune the persistent identity tags so
-they fold into the trigger. Pick a *rare* trigger string (e.g. `ariacharA`, not `aria`).
+That single script (portable — derives every path from its own location) does the rest:
+1. validates `output/dataset/aria/` has enough images,
+2. **auto-captions** if needed — WD14 booru tagger, then prepends the trigger and prunes the exact
+   identity tags you name (they bake into the trigger; pose/expression/framing tags stay),
+3. **derives `num_repeats`** from a target step count, so 15 or 50 images both land near target,
+4. writes the dataset config and trains.
 
-## 4. Train  (venv active)
+Defaults: trigger `<Char>char`, base `oneObsession`, dim 16 / alpha 8, Prodigy lr 1.0 cosine,
+min_snr 5, res 1024 + bucketing, bf16, batch 2, `--sdpa`, unet-only, ~1500 steps. Override any:
+`-Trigger`, `-Base <ckpt>`, `-Dim`, `-Alpha`, `-Steps`, `-Epochs`, `-Batch`, `-TrainTextEncoder`,
+`-SkipCaption`. Output → `models/loras/<Char>_v1.safetensors` (+ one per epoch). A second character
+is just another call: `train_lora.ps1 -Char kael -Prune "..."` — same script, no copies, no moving.
 
-```powershell
-.\tools\lora_train\.venv\Scripts\Activate.ps1
-& "C:/Users/vsiva/dev/ComfyUI/tools/lora_train/train_charA.ps1"   # cd's into tools/sd-scripts itself
-```
+## 4. Use it  (any IL workflow)
 
-Settings (in the script + `dataset_charA.toml`): LoRA dim 16 / alpha 8, Prodigy lr 1.0 cosine,
-min_snr_gamma 5, resolution 1024 + bucketing 768–1280, bf16, batch 2, gradient checkpointing,
-cache_latents_to_disk, `--sdpa` (no xformers — avoids Blackwell wheel pain), unet-only (16 GB-safe).
-~1200–1500 steps. Saves `charA_aria_v1.safetensors` (+ one per epoch) to `models/loras/`.
-The script sets `PYTHONUTF8=1` — sd-scripts prints unicode progress that crashes a cp1252 console.
-
-Copy `dataset_charA.toml` → `dataset_charB.toml` (change `image_dir`) and `train_charA.ps1`
-→ `train_charB.ps1` (change `$DATACFG`/`$NAME` + the trigger in captioning) for character B.
-
-## 5. Use it  (any IL workflow)
-
-Open IL_1_Base (or any tier). In the **LoRA bank** node: toggle `charA_aria_v1` ON, strength
-~0.75, and put the trigger (`ariacharA`) in the Positive prompt. Identity flows through base +
-every detail pass automatically.
+Open IL_1_Base (or any tier). In the **LoRA bank** node: toggle `aria_v1` ON, strength ~0.75, and
+put the trigger (`ariachar`) in the Positive prompt. Identity flows through base + every detail
+pass automatically.
 
 **Pick the best epoch:** XY-plot strength {0.5, 0.75, 0.9} × a few seeds with the trigger; choose
 the epoch/strength that holds identity without frying style. If identity is weak, raise strength

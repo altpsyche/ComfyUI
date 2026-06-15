@@ -30,8 +30,12 @@ HAND_POS = "detailed hand, perfect hand anatomy, five fingers, correct number of
 FACE_POS = "detailed face, beautiful detailed eyes, symmetrical eyes, sharp focus, detailed skin texture, natural lips"
 NOTE_C, NOTE_BG = "#432", "#322"
 
-# IL_Dataset tool: ONE character's locked identity tags (edit per character before generating
-# a set). Be hyper-specific + weight the face-defining tags so the trained LoRA bakes them.
+# IL_Dataset tool: ONE character at a time.
+#   CHAR_NAME  the output folder (output/dataset/<name>/) + default LoRA trigger/name.
+#   CHAR       that character's weighted identity tags (hyper-specific; the LoRA bakes these).
+# Switch characters WITHOUT regenerating by editing the prompt + the SaveImage prefix in the
+# ComfyUI UI, or change these and re-run build_il_graphs.py. No file moving either way.
+CHAR_NAME = "charA"
 CHAR = ("1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles, "
         "cream knit sweater, blue jeans")
 # Suffix that turns the identity tags into a clean hero portrait (the IPAdapter face source).
