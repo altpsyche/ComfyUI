@@ -152,7 +152,7 @@ prune) that the train scripts read.
 |---|---|
 | **Load + Seeds** | checkpoint, VAE, CLIP skip −2, two seeds (Hero = identity, Gen = variety), negative. |
 | **Hero portrait (identity source)** | `identity + outfit + portrait suffix` → fixed-seed 832×1216 txt2img → **HERO preview**. The single face source. |
-| **IPAdapter face lock** | `IPAdapterUnifiedLoader (PLUS FACE)` + `IPAdapterAdvanced` (weight **0.85**, **K+V**). Builds a hero-identity model used **only** by the face detailer. |
+| **IPAdapter face lock (light)** | `IPAdapterUnifiedLoader (PLUS FACE)` + `IPAdapterAdvanced` (weight **0.55**, **V only** — light, so wildcard expressions/poses still vary). Hero-identity model used **only** by the face detailer. |
 | **Variation prompt** | `ImpactWildcardEncode`: `identity + (outfit|__outfit__) + __framing__ __angle__ __pose__ __expression__`. Rolls new values each Gen Seed. |
 | **Batched generation** | `Gen KSampler` on the **raw checkpoint** (clean render) batch 4 → decode. |
 | **Face + Hand Detail** | Face detector + SAM2 → **FaceDetailer on the IPAdapter model** (denoise **0.5**, pose-neutral cond) imposes the hero face in the crop; Hand detailer on the raw model. |
@@ -178,11 +178,12 @@ Edit those `.txt` files (one option per line) to change variety:
 > exist on this machine but a fresh clone won't have them. (Known limitation.)
 
 ### 6f. Tuning dials (live in the UI — no regenerate needed)
-- **Identity too weak** (face ≠ hero) → `IPAdapter apply` node: raise `weight` 0.85 → 0.95, or
-  `FaceDetailer` `denoise` 0.5 → 0.6.
-- **Face melty / plastic / overcooked** → lower `FaceDetailer` `denoise` → 0.4.
-- **All faces too samey / no expression** → lower `denoise` a touch (fine for training — you prompt
-  expressions at inference).
+- **Identity too weak / drifts** → `IPAdapter apply` node: raise `weight` 0.55 → 0.7 (or switch
+  `embeds_scaling` to `K+V` for a harder lock — but that can flatten expression).
+- **Face melty / plastic / overcooked** → lower `FaceDetailer` `denoise` → 0.3.
+- **All faces too samey / stiff expression** → lower IPAdapter `weight` (0.55 → 0.4); the
+  `__expression__` wildcard then comes through more. (Don't chase exact hero-match — varied is better
+  training data; the LoRA delivers the final consistent face.)
 - **Want a fixed outfit you forgot to set** → change `__outfit__` back to literal clothes in the
   Wildcard prompt, or set `vary_outfit` in the roster + regenerate.
 
@@ -267,13 +268,13 @@ the model's style.
 
 | Goal | Dial |
 |---|---|
-| Dataset face ≠ hero | IPAdapter `weight` ↑ (0.85→0.95), FaceDetailer `denoise` ↑ (0.5→0.6) |
+| Dataset face drifts | IPAdapter `weight` ↑ (0.55→0.7) — but don't over-lock; varied ≠ wrong |
 | Dataset face melty | FaceDetailer `denoise` ↓ (0.5→0.4) |
 | LoRA identity weak at inference | train strength ↑ (0.75→0.9), add `-TrainTextEncoder`, more steps |
 | LoRA overfits dataset poses | fewer `-Steps`/`-Epochs`, more varied dataset |
 | LoRA fries style / too strong | LoRA bank strength ↓ (0.75→0.6), lower `-Dim`/`-Alpha` |
 | Swappable outfit | `vary_outfit: True` in roster + keep outfit tags (don't prune) |
-| Hard identical face (last resort) | add a ReActor face-swap pass (not installed — ask) |
+| Hard identical face (rarely worth it) | ReActor face-swap is installed (submodule) but OFF — it freezes one expression + looks uncanny, and hurts training variety. Avoid for datasets. |
 
 ## 11. Troubleshooting
 
@@ -315,8 +316,8 @@ scripts/install_trainer.ps1   builds the trainer venv (setup.bat --with-trainer)
 ```
 
 Key defaults: checkpoint `oneObsession_v19Atypical` · VAE `sdxl_vae_f16_fix` · CLIP skip −2 ·
-CFG 5 · sampler `euler_ancestral`/`normal`/30 · seed `1234567890` · IPAdapter face lock 0.85 / K+V ·
-FaceDetailer denoise 0.5 · LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
+CFG 5 · sampler `euler_ancestral`/`normal`/30 · seed `1234567890` · IPAdapter face lock 0.55 / V only ·
+FaceDetailer denoise 0.4 · LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
 
 ## 13. Why it's built this way
 
@@ -324,8 +325,11 @@ FaceDetailer denoise 0.5 · LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
   So the base samples on the raw checkpoint (native quality) and the hero face is imposed only in the
   FaceDetailer crop. This is the lesson from the earlier comic work: the raw text2img base renders
   best; lock identity *after*, per face.
-- **K+V (not "V only").** "V only" was needed when IPAdapter ran on the whole scene (K+V bleached it).
-  Face-only, K+V is safe and transfers far more identity.
+- **Light "V only" face-lock, not a hard swap.** A training set needs *recognizably the same person
+  with varied expressions*, not identical faces. A light V-only IPAdapter (0.55) on the face keeps
+  identity consistent while the `__expression__`/`__pose__` wildcards still vary. Stronger K+V froze
+  expression; a ReActor face-swap froze it harder and looked uncanny — both are wrong for datasets.
+  The trained LoRA, not the dataset, produces the final exact face.
 - **Hero portrait as the single anchor.** One fixed-seed face, propagated, beats hoping every text
   gen lands the same face.
 - **Roster + per-character graphs.** Adding a character is one config entry, not edited scripts —
