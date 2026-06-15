@@ -22,6 +22,8 @@ param(
     [string]$Base,                           # checkpoint (default: oneObsession in models/checkpoints)
     [int]$Dim = 16,
     [int]$Alpha = 8,
+    [ValidateSet('prodigy','adamw','adafactor')] [string]$Optimizer = 'prodigy',  # Blackwell-safe set; NOT adamw8bit (bitsandbytes on sm_120 is unverified)
+    [double]$DCoef = 1.0,                     # Prodigy d_coef (try 0.8 to reduce overcook on small sets)
     [int]$Steps = 1500,                      # TARGET total steps; num_repeats is derived from it
     [int]$Epochs = 10,
     [int]$Batch = 2,
@@ -114,16 +116,36 @@ bucket_reso_steps = 64
   num_repeats = $repeats
 "@ | Set-Content -Path $cfgPath -Encoding UTF8
 
+# --- optimizer block (Prodigy is the default; AdamW / AdaFactor are Blackwell-safe alternatives.
+# NOT AdamW8bit: bitsandbytes on sm_120 is unverified -- the reason Prodigy was chosen. clip_skip is
+# deliberately NOT passed: sdxl_train_network ignores it for SDXL.) ---
+switch ($Optimizer) {
+    'adamw' {
+        $optArgs = @('--optimizer_type','AdamW',
+                     '--learning_rate','3e-4','--unet_lr','3e-4','--text_encoder_lr','3e-5')
+    }
+    'adafactor' {
+        $optArgs = @('--optimizer_type','Adafactor',
+                     '--optimizer_args','relative_step=False','scale_parameter=False','warmup_init=False',
+                     '--learning_rate','3e-4','--unet_lr','3e-4','--text_encoder_lr','3e-5')
+    }
+    default {   # prodigy: auto-tunes LR (lr must be 1.0); d_coef knobs effective LR
+        $optArgs = @('--optimizer_type','prodigy',
+                     '--learning_rate','1.0','--unet_lr','1.0','--text_encoder_lr','1.0',
+                     '--optimizer_args','decouple=True','weight_decay=0.01',"d_coef=$DCoef",'use_bias_correction=True','safeguard_warmup=True')
+    }
+}
+
 # --- train ---
 $trainArgs = @(
     'launch','--num_cpu_threads_per_process','8','sdxl_train_network.py',
     '--pretrained_model_name_or_path',$Base,
     '--dataset_config',$cfgPath,
     '--output_dir',$outDir,'--output_name',"${Char}_v1",
-    '--network_module','networks.lora','--network_dim',$Dim,'--network_alpha',$Alpha,
-    '--optimizer_type','prodigy',
-    '--learning_rate','1.0','--unet_lr','1.0','--text_encoder_lr','1.0',
-    '--optimizer_args','decouple=True','weight_decay=0.01','d_coef=1.0','use_bias_correction=True','safeguard_warmup=True',
+    '--network_module','networks.lora','--network_dim',$Dim,'--network_alpha',$Alpha
+)
+$trainArgs += $optArgs
+$trainArgs += @(
     '--lr_scheduler','cosine',
     '--max_train_epochs',$Epochs,'--save_every_n_epochs','1',
     '--train_batch_size',$Batch,'--gradient_checkpointing',
@@ -134,7 +156,8 @@ $trainArgs = @(
 )
 if (-not $TrainTextEncoder) { $trainArgs += '--network_train_unet_only' }   # 16 GB-safe default
 
-Write-Host "[+] training ${Char}_v1 (dim $Dim / alpha $Alpha) -> models/loras/${Char}_v1.safetensors"
+$optDesc = if ($Optimizer -eq 'prodigy') { "prodigy d_coef=$DCoef" } else { $Optimizer }
+Write-Host "[+] training ${Char}_v1 (dim $Dim / alpha $Alpha, $optDesc) -> models/loras/${Char}_v1.safetensors"
 Push-Location $sdDir                         # sd-scripts imports library.* relative to its dir
 & $acc @trainArgs
 $rc = $LASTEXITCODE

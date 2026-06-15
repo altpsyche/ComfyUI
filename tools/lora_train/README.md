@@ -241,16 +241,27 @@ One command per character, or the whole roster:
 | `-Trigger` | roster / `<Char>char` | caption keyword you'll type at inference |
 | `-Prune` | roster / `""` | exact tags to bake into the trigger (e.g. `"auburn hair,green eyes"`) |
 | `-Base` | oneObsession | base checkpoint to train on |
-| `-Dim` / `-Alpha` | 16 / 8 | LoRA rank / alpha |
+| `-Dim` / `-Alpha` | 16 / 8 | LoRA rank / alpha (try 32 / 16 for visually complex characters) |
+| `-Optimizer` | `prodigy` | `prodigy` \| `adamw` \| `adafactor` (see note below — **not** adamw8bit) |
+| `-DCoef` | 1.0 | Prodigy `d_coef`; lower (≈0.8) to reduce overcook on small sets |
 | `-Steps` | 1500 | TARGET total steps (drives repeats) |
 | `-Epochs` | 10 | epochs (saves one LoRA per epoch) |
 | `-Batch` | 2 | batch size (raise if you have VRAM headroom) |
 | `-TrainTextEncoder` | off | also train the text encoder (stronger, more VRAM) |
 | `-SkipCaption` | off | use existing captions, don't re-tag |
 
+**Optimizer choice (community-consensus vs our defaults).** Several Illustrious guides report Prodigy
+can "burn" / not suit IL well and prefer **AdamW** or **AdaFactor** with explicit LRs (UNet ~3e-4, TE
+~3e-5) — though there's a pro-Prodigy camp too, so it's genuinely contested. We keep **Prodigy as the
+default** (auto-LR, no extra deps) and expose `-Optimizer adamw|adafactor` to A/B it. We deliberately
+**do not** offer AdamW8bit: it needs `bitsandbytes`, which is unverified on Blackwell `sm_120` (the
+exact wheel pain Prodigy avoids). There is also **no `-ClipSkip`**: `sdxl_train_network.py` ignores
+clip_skip for SDXL (it warns and no-ops) — the inference-side CLIP skip −2 is unrelated to training.
+
 ### sd-scripts settings (baked into the launch)
-LoRA `networks.lora` dim 16 / alpha 8 · optimizer **Prodigy** lr 1.0 (`decouple`,
-`weight_decay=0.01`, `d_coef=1.0`, `use_bias_correction`, `safeguard_warmup`) · `cosine` ·
+LoRA `networks.lora` dim 16 / alpha 8 · optimizer **Prodigy** (default) lr 1.0 (`decouple`,
+`weight_decay=0.01`, `d_coef=$DCoef`, `use_bias_correction`, `safeguard_warmup`) — selectable via
+`-Optimizer` (adamw / adafactor at LR 3e-4) · `cosine` ·
 `min_snr_gamma 5` · resolution 1024 + bucketing 768–1280 · **bf16** · batch 2 ·
 `gradient_checkpointing` · `cache_latents_to_disk` · **`--sdpa`** (no xformers — avoids Blackwell
 wheel pain) · `no_half_vae` · `--network_train_unet_only` (unless `-TrainTextEncoder`) · seed 42.
@@ -262,6 +273,12 @@ wheel pain) · `no_half_vae` · `--network_train_unet_only` (unless `-TrainTextE
 ### Prune: bake vs promptable
 - A tag **kept** in captions → the model ties that look to the word → **promptable** (changeable).
 - A tag **pruned** (and visually constant) → folds into the **trigger** → always appears, harder to change.
+- **Community default for a fixed character: prune the intrinsic identity tags** (hair colour/length,
+  eye colour, face marks) so they bake into the trigger and you don't have to type them. We ship
+  `prune=""` (promptable) as the conservative default; for a locked signature character, populate it.
+- **Using a `base` danbooru tag?** After captioning, the WD14 tagger will re-emit that character's
+  tags; add the base tag (and its signature features) to `-Prune` so the borrowed identity folds into
+  *your* trigger instead of staying tied to the danbooru character name.
 - Signature outfit you want locked → add the outfit tags to `prune`. Swappable outfit → keep them.
 - Note: prune is exact-match against WD14 output, so `"long hair"` matches the tag `long hair`, not
   `(long wavy auburn hair:1.1)`. It's optional fine-tuning — identity is learned from the consistent
@@ -288,6 +305,8 @@ the model's style.
 | Dataset face drifts (base set) | pick a more iconic danbooru `base` tag, or trim `id` so the tag dominates |
 | Dataset face melty | FaceDetailer `denoise` ↓ (0.5→0.4) |
 | LoRA identity weak at inference | train strength ↑ (0.75→0.9), add `-TrainTextEncoder`, more steps |
+| LoRA under-baked / low fidelity | `-Dim 32 -Alpha 16` (more capacity for complex characters) |
+| LoRA burns / overcooked | `-DCoef 0.8` (Prodigy) or `-Optimizer adamw` (3e-4); fewer steps |
 | LoRA overfits dataset poses | fewer `-Steps`/`-Epochs`, more varied dataset |
 | LoRA fries style / too strong | LoRA bank strength ↓ (0.75→0.6), lower `-Dim`/`-Alpha` |
 | Swappable outfit | `vary_outfit: True` in roster + keep outfit tags (don't prune) |
