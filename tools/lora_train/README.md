@@ -12,6 +12,7 @@ fully scripted — no per-character file copies, no manual file moving.
 4. [Phase 0 — one-time trainer setup](#4-phase-0--one-time-trainer-setup)
 5. [Phase 1 — define the roster](#5-phase-1--define-the-roster)
 6. [Phase 2 — generate datasets in ComfyUI](#6-phase-2--generate-datasets-in-comfyui)
+   - [6g. RECOMMENDED bootstrap — Qwen-Image-Edit (`IL_DatasetEdit`)](#6g-recommended-bootstrap--qwen-image-edit-il_datasetedit)
 7. [Phase 3 — curate](#7-phase-3--curate)
 8. [Phase 4 — caption + train](#8-phase-4--caption--train)
 9. [Phase 5 — use the LoRA](#9-phase-5--use-the-lora)
@@ -28,21 +29,49 @@ fully scripted — no per-character file copies, no manual file moving.
   never interfere. At render time you toggle whichever you want in the LoRA bank.
 - **The chicken-and-egg** (you can't make consistent images to train on, but you need consistent
   images to train) is solved by **bootstrapping**: generate ONE good "hero" portrait, propagate
-  that face onto many varied poses/outfits, curate, train.
+  it onto many varied poses/angles/outfits, curate, train.
 - **The dataset doesn't need pixel-perfect faces** — it needs images that are *recognizably the
   same person*. Curation drops the outliers; the trained LoRA averages the rest into one stable
   identity. Don't chase a perfect clone in the dataset.
 
-The pipeline per character:
+**Two ways to propagate the hero (pick per character):**
+
+| Route | Best for | How it propagates | Section |
+|---|---|---|---|
+| **Qwen-Image-Edit** (`IL_DatasetEdit`) | **Fully-original characters** (recommended) | An image-edit model **re-poses the whole hero** (face + body + outfit) into new angles/poses while holding identity + your art style | [§6g](#6g-recommended-bootstrap--qwen-image-edit-il_datasetedit) |
+| **Hero + light IPAdapter** (`IL_Dataset_<name>`) | The original SDXL-only route; no extra model downloads | A fixed-seed hero feeds a light IPAdapter that locks the **face crop** while a wildcard prompt varies the body | [§6](#6-phase-2--generate-datasets-in-comfyui) |
+
+Both end the same way: curate → `train_lora.ps1`. The trained LoRA — not the dataset — delivers the
+final exact face either way.
+
 ```
-hero portrait (fixed seed)  ─IPAdapter face lock─┐
-raw checkpoint + wildcard prompt ─► clean base ──► face detailer (hero face) ─► save ─► curate ─► train ─► LoRA
+QWEN-EDIT route (recommended for original characters):
+  hero (rendered in YOUR Illustrious checkpoint)
+     └─► Qwen-Image-Edit-2511 re-poses whole figure (holds identity + style)
+            └─ wildcard instruction varies angle/pose/expression ─► save ─► curate ─► train ─► LoRA
+
+HERO + IPADAPTER route (SDXL-only, no downloads):
+  hero portrait (fixed seed) ─IPAdapter face lock─┐
+  raw checkpoint + wildcard prompt ─► clean base ─► face detailer (hero face) ─► save ─► curate ─► train ─► LoRA
 ```
 
 ## 2. TL;DR (the whole loop)
 
+**Recommended (Qwen-Image-Edit route, original characters):**
 ```powershell
-setup.bat --with-trainer                       # once: build the trainer venv (multi-GB)
+setup.bat --with-trainer                       # once: trainer venv (multi-GB)
+powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # once: Qwen-Edit model stack (~23 GB)
+python tools/build_il_graphs.py                # emits IL_DatasetEdit (+ the IL_Dataset_<name> route)
+# In ComfyUI: render an original hero in IL_1_Base -> put it in ComfyUI/input/.
+# Open IL_DatasetEdit: HERO >> LOAD = your hero, Save prefix = dataset/<name>/<name>,
+#   batch-queue the Edit-instruction seed ~40x, curate output/dataset/<name>/ to the best 25-40.
+.\tools\lora_train\train_lora.ps1 -Char <name> # captions + trains
+# In any IL_* workflow: LoRA bank -> toggle <name>_v1 ON, strength ~0.75, add the trigger word.
+```
+
+**SDXL-only route (hero + IPAdapter, no extra downloads):**
+```powershell
+setup.bat --with-trainer
 # edit CHARACTERS in tools/il_graphs/config.py, then:
 python tools/build_il_graphs.py                # emits IL_Dataset_<name> per character + roster.json
 # In ComfyUI: open IL_Dataset_<name>, pick a hero (Hero Seed), batch-queue the Gen Seed ~15x,
@@ -206,30 +235,101 @@ Edit those `.txt` files (one option per line) to change variety:
 When you find values you like, either leave them in the open graph or bake them into
 `tools/il_graphs/graphs.py` so future regenerations keep them.
 
-### 6g. Alternative bootstrap — Qwen-Image-Edit (IL_DatasetEdit) for fully-original characters
+### 6g. RECOMMENDED bootstrap — Qwen-Image-Edit (`IL_DatasetEdit`)
 
-The hero+IPAdapter route locks a face *crop*. For a **fully-original** character (no danbooru
-anchor) the stronger 2026 option is to **re-pose one hero with an image-edit model** — it varies the
-*whole figure* while holding identity, then you train the Illustrious LoRA as usual.
+This is the strongest 2026 way to build a dataset for a **fully-original** character (one that
+doesn't resemble any known danbooru character, so a text tag can't carry the face). Instead of
+locking a face *crop* (what IPAdapter does), an **image-edit model re-poses the entire hero** —
+face, hair, body, and outfit — into new camera angles and poses, while preserving identity *and*
+the hero's art style. You generate ONE good hero in your own checkpoint, then let the edit model
+spin it into a varied set.
 
-One-time setup (downloads ~23 GB; needs the `ComfyUI-GGUF` submodule):
+**Why it preserves your style.** Edit models are conditioned on the *input image* and only change
+what the instruction asks. Because the hero is rendered in **your Illustrious checkpoint**, every
+edited frame stays in that style — no "realism drift" from the edit model. (You can optionally add
+an Illustrious img2img low-denoise re-skin pass afterward, but in practice it isn't needed.)
+
+#### 6g.1 One-time setup
+
+The model is **Qwen-Image-Edit-2511**, run as a quantized **GGUF** so it fits a 16 GB GPU. It needs
+the **ComfyUI-GGUF** custom node (added as a submodule by `setup.bat`; if missing, run
+`git submodule update --init custom_nodes/ComfyUI-GGUF` then install its `requirements.txt` into the
+ComfyUI venv).
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1      # -Quant Q4_K_M for less VRAM
+powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1
+#   -Quant Q4_K_M   # smaller/faster, lower quality   (default Q5_K_M)
+#   -SkipAnglesLora # skip the camera-angles LoRA
 ```
-This fetches Qwen-Image-Edit-2511 (GGUF Q5) + the qwen2.5-vl-7b encoder + qwen_image VAE + the
-Lightning-4step and multiple-angles LoRAs into `models/`.
+This idempotently downloads (≈23 GB total) into the right `models/` subfolders:
 
-Use it (workflow **`IL_DatasetEdit`**, emitted by `build_il_graphs.py`):
-1. Render one original portrait in **IL_1_Base** (your checkpoint = your style); drop it in
-   `ComfyUI/input/` and pick it in **HERO >> LOAD**.
-2. Set the Save prefix to `dataset/<name>/<name>`.
-3. Reroll the **Edit instruction** seed (batch-queue ~40) → `output/dataset/<name>/` — each is the same
-   character in a new `__angle__/__pose__/__expression__`, style preserved.
-4. Curate + train exactly as below (`train_lora.ps1 -Char <name>`).
+| File | → folder | Role |
+|---|---|---|
+| `qwen-image-edit-2511-Q5_K_M.gguf` (~15 GB) | `models/unet/` | the edit diffusion model (GGUF) |
+| `qwen_2.5_vl_7b_fp8_scaled.safetensors` (~9 GB) | `models/text_encoders/` | the Qwen 2.5-VL text/vision encoder |
+| `qwen_image_vae.safetensors` (~250 MB) | `models/vae/` | the Qwen-Image VAE |
+| `Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors` (~850 MB) | `models/loras/` | 4-step distillation (makes 16 GB practical) |
+| `qwen-image-edit-2511-multiple-angles-lora.safetensors` (~295 MB) | `models/loras/` | drives camera-angle variety |
 
-Why it keeps your style: edit models preserve the *input* image's style, and the hero is rendered in
-Illustrious. Runs on 16 GB via the Lightning LoRA (KSampler 6 steps / cfg 1.0). Too slow / OOM →
-re-run the installer with `-Quant Q4_K_M`. Identity drifting → lower the multiple-angles LoRA strength.
+> **Quant guide (16 GB):** `Q5_K_M` is the sweet spot (usable quality, fits with the encoder
+> offloaded to RAM). `Q4_K_M` if you OOM or want speed (noticeably weaker). `Q6_K` only with VRAM
+> headroom. Re-run the installer with a different `-Quant` to swap; it skips files already present.
+
+Then `python tools/build_il_graphs.py` emits the **`IL_DatasetEdit`** workflow.
+
+#### 6g.2 Graph anatomy (`IL_DatasetEdit`)
+
+| Group | Does |
+|---|---|
+| **Qwen-Edit model + LoRAs** | `UnetLoaderGGUF` (Q5) → `LoraLoaderModelOnly` ×2 (Lightning 1.0, multiple-angles 0.8) → `ModelSamplingAuraFlow` (shift 3.1) → `CFGNorm` (1.0). The exact model-patch chain the official 2511 template uses. |
+| **Encoders + hero** | `CLIPLoader` (qwen2.5-vl-7b, type `qwen_image`), `VAELoader` (qwen_image_vae), **`HERO >> LOAD`** (`LoadImage` — your hero), `FluxKontextImageScale` (scales the ref to the model's pixel budget). |
+| **Instruction + encode** | **`Edit instruction`** (`ImpactWildcardProcessor`) → `TextEncodeQwenImageEditPlus` (positive: scaled hero + instruction) and a second one (negative: empty). Each conditioning passes a `FluxKontextMultiReferenceLatentMethod` node (kept ON — required for the repackaged GGUF build). `VAEEncode` turns the scaled hero into the init latent. |
+| **Edit + decode** | `KSampler` (Lightning: **6 steps / cfg 1.0 / euler / simple / denoise 1.0**) → `VAEDecode`. |
+| **Finish + Save** | `SaveImage` prefix `dataset/<name>/<name>` → `output/dataset/<name>/`. |
+
+#### 6g.3 Step-by-step
+
+1. **Make a hero.** Render one strong original portrait in **IL_1_Base** (front-ish, clean face,
+   neutral-to-pleasant expression). Save it into **`ComfyUI/input/`** (e.g. `input/aria_hero.png`).
+   This single image is the entire identity source — pick a good one.
+2. **Open `IL_DatasetEdit`** (re-open it after any regenerate — ComfyUI caches loaded graphs).
+3. In **`HERO >> LOAD`** select your hero file.
+4. Set the **Save** node's prefix to `dataset/<name>/<name>` (e.g. `dataset/aria/aria`).
+5. Confirm the **Edit instruction** node's `mode` is **populate** and its seed control is
+   **randomize** (so each queue rolls a new pose/angle).
+6. Set the **batch count** beside Queue to ~40 and **Queue once** → ~40 varied frames stream into
+   `output/dataset/<name>/`. (There's no batch-of-4 here — one edit per queue — so use a higher
+   batch count than the IPAdapter route.)
+7. Proceed to [curate](#7-phase-3--curate) and [train](#8-phase-4--caption--train) unchanged.
+
+#### 6g.4 The edit instruction (driving variety)
+
+The positive prompt is produced by **`ImpactWildcardProcessor`**, whose `wildcard_text` ships as:
+```
+same character, identical face and hair and outfit, keep the same art style, __angle__, __pose__, __expression__
+```
+- The **"same character, identical face/hair/outfit, keep the same art style"** preamble is the
+  identity/style lock — keep it. It tells the edit model to change *only* the pose, not the person.
+- `__angle__`, `__pose__`, `__expression__` are Impact-Pack wildcards (one random line each per
+  queue, from `custom_nodes/ComfyUI-Impact-Pack/wildcards/*.txt`). Edit those `.txt` files to steer
+  the kind of variety you want (e.g. add `from below`, `dutch angle` to `angle.txt`).
+- You can also type a fixed instruction (set `mode` → `fixed`) to force one specific change while
+  dialing in settings, e.g. `same character …, full body, three-quarter view, walking`.
+- The **multiple-angles LoRA** reinforces camera-angle changes even when the prompt is mild.
+
+#### 6g.5 Tuning dials (live in the graph)
+
+| Symptom | Dial |
+|---|---|
+| Identity drifts across frames | lower **multiple-angles LoRA** strength (0.8 → 0.5); strengthen the "identical face/hair" preamble; use a cleaner hero |
+| Too little variety / poses all similar | raise multiple-angles LoRA (0.8 → 1.0); add options to `angle.txt`/`pose.txt`; keep seed control = randomize |
+| Soft / low-detail output | raise **KSampler steps** (6 → 8–10) — still with the Lightning LoRA; cfg can stay 1.0 |
+| Style drifts from your checkpoint | ensure the hero was rendered in your checkpoint; optionally add an IL img2img re-skin (denoise 0.25–0.35) after |
+| Too slow / OOM on 16 GB | re-run `install_qwen_edit.ps1 -Quant Q4_K_M`; close other GPU apps |
+| Output too zoomed/cropped | the ref is auto-scaled by `FluxKontextImageScale`; add framing words (`full body`, `cowboy shot`) to the instruction |
+
+If you settle on better defaults (LoRA strengths, steps, instruction), bake them into
+`build_dataset_edit()` in `tools/il_graphs/graphs.py` so regenerations keep them.
 
 ## 7. Phase 3 — curate
 
@@ -336,6 +436,10 @@ the model's style.
 | LoRA fries style / too strong | LoRA bank strength ↓ (0.75→0.6), lower `-Dim`/`-Alpha` |
 | Swappable outfit | `vary_outfit: True` in roster + keep outfit tags (don't prune) |
 | Hard identical face (rarely worth it) | ReActor face-swap is installed (submodule) but OFF — it freezes one expression + looks uncanny, and hurts training variety. Avoid for datasets. |
+| (Qwen-Edit) identity drifts across frames | lower multiple-angles LoRA (0.8→0.5); keep the "identical face/hair" preamble; use a cleaner hero — see [§6g.5](#6g5-tuning-dials-live-in-the-graph) |
+| (Qwen-Edit) poses too similar | raise multiple-angles LoRA (→1.0); add lines to `angle.txt`/`pose.txt` |
+| (Qwen-Edit) soft output | KSampler steps 6→8–10 (keep Lightning, cfg 1.0) |
+| (Qwen-Edit) too slow / OOM (16 GB) | `install_qwen_edit.ps1 -Quant Q4_K_M`; close other GPU apps |
 
 ## 11. Troubleshooting
 
@@ -352,13 +456,18 @@ the model's style.
 | `UnicodeEncodeError` (cp1252) during train | `PYTHONUTF8=1` (the scripts set it; set it manually if you run sd-scripts directly). |
 | OOM during training | drop `-Batch 1`, keep `--network_train_unet_only`. |
 | `ImpactWildcardEncode` missing/red | Impact-Pack not loaded — `setup.bat` / `install_node_reqs.ps1`. |
+| (Qwen-Edit) `UnetLoaderGGUF` missing/red | ComfyUI-GGUF not loaded — `git submodule update --init custom_nodes/ComfyUI-GGUF` + install its `requirements.txt`. |
+| (Qwen-Edit) model not in a dropdown | not downloaded — run `scripts/install_qwen_edit.ps1`; confirm it landed in the listed `models/` subfolder. |
+| (Qwen-Edit) edited frame ignores the hero | check `HERO >> LOAD` points at your image and it feeds **image1** on both encoders; keep the reference-method nodes ON. |
+| (Qwen-Edit) output not anime / off-style | the hero wasn't rendered in your checkpoint — re-make it in IL_1_Base; or add an IL img2img re-skin pass. |
 
 ## 12. File & setting reference
 
 ```
 tools/
   il_graphs/config.py         CHARACTERS roster, base ckpt/VAE/sampler, REF_SUFFIX
-  il_graphs/graphs.py         build_dataset() — the IL_Dataset_<name> graph
+  il_graphs/graphs.py         build_dataset() — IL_Dataset_<name>; build_dataset_edit() — IL_DatasetEdit
+  il_graphs/templates.py      node schemas (harvest + EXTRA_TEMPLATES incl. the Qwen-Edit nodes)
   build_il_graphs.py          regenerate all IL_* workflows + roster.json
   sd-scripts/                 kohya trainer (submodule)
   lora_train/
@@ -371,15 +480,24 @@ tools/
     train_all.ps1             train the whole roster
     verify_env.py             venv sanity check
 custom_nodes/ComfyUI-Impact-Pack/wildcards/   pose/angle/framing/outfit/expression .txt
+custom_nodes/ComfyUI-GGUF/     GGUF loader node (submodule; required by IL_DatasetEdit)
 output/dataset/<name>/        your generated + curated images
-models/loras/<name>_v1.safetensors   trained output
+models/loras/<name>_v1.safetensors        trained output
+models/unet/qwen-image-edit-2511-Q5_K_M.gguf          Qwen-Edit diffusion model   [gitignored]
+models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors  Qwen-Edit encoder     [gitignored]
+models/vae/qwen_image_vae.safetensors                 Qwen-Edit VAE               [gitignored]
+models/loras/Qwen-Image-Edit-2511-Lightning-*.safetensors   4-step distill LoRA   [gitignored]
+models/loras/qwen-image-edit-2511-multiple-angles-lora.safetensors  angles LoRA   [gitignored]
 scripts/install_trainer.ps1   builds the trainer venv (setup.bat --with-trainer)
 scripts/install_qwen_edit.ps1 downloads the Qwen-Image-Edit-2511 stack (IL_DatasetEdit)
 ```
 
-Key defaults: checkpoint `oneObsession_v19Atypical` · VAE `sdxl_vae_f16_fix` · CLIP skip −2 ·
+Key defaults — **training**: LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
+**Hero/IPAdapter route**: checkpoint `oneObsession_v19Atypical` · VAE `sdxl_vae_f16_fix` · CLIP skip −2 ·
 CFG 5 · sampler `euler_ancestral`/`normal`/30 · seed `1234567890` · IPAdapter face lock 0.55 / V only ·
-FaceDetailer denoise 0.4 · LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
+FaceDetailer denoise 0.4.
+**Qwen-Edit route** (`IL_DatasetEdit`): GGUF Q5 · Lightning **6 steps / cfg 1.0 / euler / simple** ·
+ModelSamplingAuraFlow shift 3.1 · CFGNorm 1.0 · multiple-angles LoRA 0.8 · reference method `index_timestep_zero`.
 
 ## 13. Why it's built this way
 
@@ -399,3 +517,10 @@ FaceDetailer denoise 0.4 · LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
 - **Two venvs.** sd-scripts needs Python ≤3.12 + a pinned torch, so it can't share ComfyUI's venv.
 - **Prodigy + `--sdpa`.** Prodigy auto-tunes LR (no bitsandbytes needed); `--sdpa` sidesteps
   xformers wheels on Blackwell.
+- **Edit-model bootstrap > face-crop lock.** IPAdapter only conditions the *face crop*; an image-edit
+  model (Qwen-Image-Edit-2511) re-poses the *whole figure* from one hero, so the dataset gets real
+  pose/angle variety with the same person — the modern, higher-consistency way to bootstrap an
+  original character. Rendering the hero in your own checkpoint keeps the edited frames on-style.
+- **GGUF + Lightning for 16 GB.** The 20B edit model only fits a 16 GB card quantized (GGUF Q5); the
+  4-step Lightning LoRA (run at 6 steps, cfg 1.0) keeps generation fast despite the text encoder
+  offloading to RAM. This is why the edit route is practical on consumer hardware at all.

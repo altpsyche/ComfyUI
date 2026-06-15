@@ -93,7 +93,8 @@ DOCS = {
      "Multiple-angles LoRA (strength ~0.8) drives camera-angle variety; lower it if identity drifts.",
      "Reference-latent-method nodes are kept ON (needed for the repackaged GGUF build).",
      "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",
-     "Wildcards (__angle__/__pose__/__expression__) live in custom_nodes/ComfyUI-Impact-Pack/wildcards/."]),
+     "Wildcards (__angle__/__pose__/__expression__) live in custom_nodes/ComfyUI-Impact-Pack/wildcards/.",
+     "Full guide (setup, anatomy, instruction system, tuning, troubleshooting): tools/lora_train/README.md section 6g."]),
 }
 
 
