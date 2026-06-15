@@ -129,12 +129,10 @@ and a recommended **`IL_DatasetEdit_<name>`** Qwen-Image-Edit graph. The old her
 CHARACTERS = {
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",  # identity ONLY
-        "outfit": "cream knit sweater, blue jeans",   # OLD route only (signature clothes)
         "prune": "",            # exact tags to BAKE into the trigger ("" = leave promptable)
-        "hero": "aria_hero.png" # file in ComfyUI/input/ pre-filled into IL_DatasetEdit_aria
         # "trigger": "ariachar" # optional; defaults to "<name>char"
     },
-    # minimal entry: just identity + trigger/prune via defaults; hero defaults to "<name>_hero.png".
+    # minimal entry: just identity; trigger defaults to kaelchar.
     "kael": { "id": "1boy, solo", "prune": "" },
     # OLD hero+IPAdapter route too (and the danbooru base path): set hero_graph=True.
     "nyx": { "id": "1girl, solo", "outfit": "casual hoodie, jeans", "prune": "",
@@ -146,9 +144,6 @@ Field-by-field:
 - **`id`** — identity tags ONLY: hair (colour/length/style), eyes, face marks, body. **No outfit.**
   This is the **Stage-1 hero prompt** in `IL_DatasetEdit_<name>` (and the OLD route's prompt) — be
   specific and weight the face-defining tags (`(green eyes:1.1)`). The hero is rendered from it.
-- **`hero`** — *(optional)* filename in `ComfyUI/input/` for the **HERO override** LoadImage (use
-  your own image instead of the in-graph Stage-1 render). `""` → defaults to `<name>_hero.png`. Not
-  needed for the normal flow — Stage 1 generates the hero for you.
 - **`prune`** — exact tags `train_lora` strips from captions so they fold into the trigger (stronger
   identity lock). `""` keeps identity tags promptable. See [Phase 4](#8-phase-4--caption--train).
 - **`hero_graph`** — *(optional, default `False`)* also emit the OLD `IL_Dataset_<name>`
@@ -305,9 +300,8 @@ pre-wired.
 
 | Group | Does |
 |---|---|
-| **Hero generator (Illustrious, STAGE 1)** | `CheckpointLoaderSimple` + `CLIPSetLastLayer −2` + the character's `id` prompt + `KSampler` (euler_a/normal/30/cfg5, fixed **Hero Seed**) → `VAEDecode` → **HERO preview**. Renders the single hero in your style. |
-| **Hero override (optional)** | a `LoadImage` ("HERO override") — drag its IMAGE into **Scale ref** to use your own image instead of Stage 1. |
-| **Qwen-Edit model + LoRAs** | `UnetLoaderGGUF` (Q5) → `LoraLoaderModelOnly` ×2 (Lightning 1.0, multiple-angles 0.8) → `ModelSamplingAuraFlow` (shift 3.1) → `CFGNorm` (1.0). The exact model-patch chain the official 2511 template uses. |
+| **STAGE 1 — Hero generator (Illustrious)** | `CheckpointLoaderSimple` + `CLIPSetLastLayer −2` + the character's `id` prompt + `KSampler` (euler_a/normal/30/cfg5, fixed **Hero Seed**) → `VAEDecode` → **HERO preview**. Renders the single hero in your style — no input image needed. |
+| **STAGE 2 — Qwen-Edit model + LoRAs** | `UnetLoaderGGUF` (Q5) → `LoraLoaderModelOnly` ×2 (Lightning 1.0, multiple-angles 0.8) → `ModelSamplingAuraFlow` (shift 3.1) → `CFGNorm` (1.0). The exact model-patch chain the official 2511 template uses. |
 | **Encoders + scale** | `CLIPLoader` (qwen2.5-vl-7b, type `qwen_image`), `VAELoader` (qwen_image_vae), `FluxKontextImageScale` (scales the hero to the model's pixel budget — fed by Stage 1). |
 | **Instruction + encode** | **`Edit instruction`** (`ImpactWildcardProcessor`) → `TextEncodeQwenImageEditPlus` (positive: scaled hero + instruction) and a second one (negative: empty). Each conditioning passes a `FluxKontextMultiReferenceLatentMethod` node (kept ON — required for the repackaged GGUF build). `VAEEncode` turns the scaled hero into the init latent. |
 | **Edit + decode** | `KSampler` (Lightning: **6 steps / cfg 1.0 / euler / simple / denoise 1.0**) → `VAEDecode`. |
@@ -320,7 +314,6 @@ pre-wired.
 2. **Stage 1 — pick the face.** Reroll the **Hero Seed** and watch **HERO preview** until you like
    the rendered face (it comes from this character's `id` tags in your checkpoint). Then leave Hero
    Seed **fixed** on that value — that single image is now the identity anchor.
-   *(Have your own hero already? Drag the **HERO override** LoadImage's IMAGE into **Scale ref**.)*
 3. **Stage 2 — confirm variety.** The **Edit instruction** node should be `mode: populate` with its
    seed control **randomize** (each queue rolls a new `__angle__/__pose__/__expression__`).
 4. Set the **batch count** beside Queue to ~40 and **Queue once** → ~40 varied frames stream into
@@ -484,8 +477,8 @@ the model's style.
 | `ImpactWildcardEncode` missing/red | Impact-Pack not loaded — `setup.bat` / `install_node_reqs.ps1`. |
 | (Qwen-Edit) `UnetLoaderGGUF` missing/red | ComfyUI-GGUF not loaded — `git submodule update --init custom_nodes/ComfyUI-GGUF` + install its `requirements.txt`. |
 | (Qwen-Edit) model not in a dropdown | not downloaded — run `scripts/install_qwen_edit.ps1`; confirm it landed in the listed `models/` subfolder. |
-| (Qwen-Edit) edited frame ignores the hero | confirm Stage-1 `Hero decode` (or the override LoadImage) feeds **Scale ref**, and that feeds **image1** on both encoders; keep the reference-method nodes ON. |
-| (Qwen-Edit) output not anime / off-style | Stage 1 should render in your checkpoint (it uses `CKPT`); if using a `HERO override`, make sure that image is your-style; or add an IL img2img re-skin pass. |
+| (Qwen-Edit) edited frame ignores the hero | confirm Stage-1 `Hero decode` feeds **Scale ref**, and that feeds **image1** on both encoders; keep the reference-method nodes ON. |
+| (Qwen-Edit) output not anime / off-style | Stage 1 renders in your checkpoint (`CKPT`) so it should match; if off, tighten `id` or add an IL img2img re-skin pass. |
 | (Qwen-Edit) Stage-1 hero looks wrong | tighten the character's `id` tags (weight face-defining ones); reroll the Hero Seed for a better face. |
 
 ## 12. File & setting reference

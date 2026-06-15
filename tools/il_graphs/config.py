@@ -42,20 +42,16 @@ NOTE_C, NOTE_BG = "#432", "#322"
 #                Paste the tag RAW (parens and all, e.g. "ganyu (genshin impact)") — build_dataset
 #                escapes the parens so CLIP doesn't read them as prompt weights. "" (default) =
 #                original face via the in-graph hero + light IPAdapter. (OLD route only.)
-#   hero         (optional) filename in ComfyUI/input/ for the HERO OVERRIDE LoadImage in
-#                IL_DatasetEdit_<name> (use your own image instead of the in-graph Stage-1 render).
-#                "" -> defaults to "<name>_hero.png". Not needed normally -- Stage 1 makes the hero.
 #   hero_graph   (optional) True also emits the OLD IL_Dataset_<name> (hero+IPAdapter / base) graph.
 #                Default False: only the recommended IL_DatasetEdit_<name> (Qwen-Image-Edit) is emitted.
 # Every entry always gets a roster.json line (name/trigger/prune) for the trainer, regardless of route.
 CHARACTERS = {
-    # DEFAULT route: Qwen-Image-Edit. Render aria_hero.png into ComfyUI/input/, open IL_DatasetEdit_aria.
+    # DEFAULT route: Qwen-Image-Edit. Open IL_DatasetEdit_aria; reroll Hero Seed to pick the face.
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",
         "prune": "",
-        "hero": "aria_hero.png",
     },
-    # Minimal entry: identity only; trigger defaults to kaelchar, hero defaults to kael_hero.png.
+    # Minimal entry: identity only; trigger defaults to kaelchar.
     "kael": {
         "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
         "prune": "",

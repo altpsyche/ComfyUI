@@ -202,7 +202,7 @@ QE_LIGHTNING = "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
 QE_ANGLES = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
 
 
-def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero=""):
+def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
     """FRONTIER dataset generator (self-contained): generate ONE original hero, then re-pose it into
     many varied shots with Qwen-Image-Edit-2511 (GGUF), holding identity + art style. One graph per
     roster character (IL_DatasetEdit_<name>); the trainer reads output/dataset/<name>/ as usual.
@@ -214,98 +214,90 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero=""):
     cfg 1.0) -> save to output/dataset/<name>/. Because the hero is rendered in YOUR checkpoint, the
     edits stay on-style; the edit only changes pose/angle/expression. Verified on the live ComfyUI.
 
-    identity/outfit: the hero text2img prompt. hero: optional external override filename in input/.
+    Layout: clean left->right columns (Stage1 hero | model | encoders | instruction | refs | edit).
     """
-    hero = hero or f"{name}_hero.png"
     b = Builder()
-    # --- STAGE 1: Illustrious hero generator (text2img from the character's id; pick a face) ---
-    ck = b.add("CheckpointLoaderSimple", [CKPT], pos=(-3500, -120), title="Checkpoint (Illustrious)")
-    hvae = b.add("VAELoader", [VAE], pos=(-3500, 40), title="VAE (hero)")
-    hseed = b.add("Seed", [SEED, "fixed"], pos=(-3500, 200), title="Hero Seed (fixed = pick the face)")
-    hclip = b.add("CLIPSetLastLayer", [-2], pos=(-3500, 360), title="CLIP skip -2")
+    # ===== STAGE 1 — Illustrious hero generator (text2img from the character's id; pick a face) =====
+    ck = b.add("CheckpointLoaderSimple", [CKPT], pos=(0, 0), title="Checkpoint (Illustrious)")
+    hvae = b.add("VAELoader", [VAE], pos=(0, 160), title="VAE (hero)")
+    hseed = b.add("Seed", [SEED, "fixed"], pos=(0, 300), title="Hero Seed (fixed = pick the face)")
+    hclip = b.add("CLIPSetLastLayer", [-2], pos=(0, 450), title="CLIP skip -2")
     b.link(ck, "CLIP", hclip, "clip")
     hpos = b.add("CLIPTextEncode", [identity + (", " + outfit if outfit else "") + REF_SUFFIX],
-                 pos=(-3220, -200), title="Hero prompt (identity)")
-    hneg = b.add("CLIPTextEncode", [NEG], pos=(-3220, -20), title="Negative")
+                 pos=(360, 0), title="Hero prompt (identity)")
+    hneg = b.add("CLIPTextEncode", [NEG], pos=(360, 180), title="Negative")
+    hlat = b.add("EmptyLatentImage", [832, 1216, 1], pos=(360, 360), title="Hero latent 832x1216")
     b.link(hclip, "CLIP", hpos, "clip"); b.link(hclip, "CLIP", hneg, "clip")
-    hlat = b.add("EmptyLatentImage", [832, 1216, 1], pos=(-3220, 160), title="Hero latent 832x1216")
     hks = b.add("KSampler", [SEED, "fixed", BASE_STEPS, BASE_CFG, BASE_SAMPLER, BASE_SCHED, 1.0],
-                pos=(-2980, -200), title="Hero KSampler")
+                pos=(720, 0), title="Hero KSampler")
     b.link(ck, "MODEL", hks, "model"); b.link(hpos, "CONDITIONING", hks, "positive")
     b.link(hneg, "CONDITIONING", hks, "negative"); b.link(hlat, "LATENT", hks, "latent_image")
     b.link(hseed, "int", hks, "seed")
-    hdec = b.add("VAEDecode", [], pos=(-2980, -20), title="Hero decode")
+    hdec = b.add("VAEDecode", [], pos=(720, 320), title="Hero decode")
     b.link(hks, "LATENT", hdec, "samples"); b.link(hvae, "VAE", hdec, "vae")
-    hprev = b.add("PreviewImage", [], pos=(-3220, 320), title="HERO preview (reroll Hero Seed to pick the face)")
+    hprev = b.add("PreviewImage", [], pos=(720, 470), title="HERO preview (reroll Hero Seed to pick the face)")
     b.link(hdec, "IMAGE", hprev, "images")
-    # optional override: drag this node's IMAGE into 'Scale ref' to use your own hero instead of stage 1.
-    himg = b.add("LoadImage", [hero, "image"], pos=(-3500, 500),
-                 title=f"HERO override (optional): drag IMAGE -> 'Scale ref' to use {hero}")
 
-    # --- STAGE 2 model: GGUF + Lightning(+angles) LoRA -> flow-shift + CFGNorm (the 2511 patch chain) ---
-    gguf = b.add("UnetLoaderGGUF", [QE_GGUF], pos=(-2600, -100), title="Qwen-Edit GGUF (Q5)")
-    llora = b.add("LoraLoaderModelOnly", [QE_LIGHTNING, 1.0], pos=(-2600, 40), title="Lightning 4-step LoRA")
-    alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, 0.8], pos=(-2600, 180), title="Multiple-angles LoRA")
-    msaf = b.add("ModelSamplingAuraFlow", [3.1], pos=(-2300, -100), title="ModelSampling (shift 3.1)")
-    cfgn = b.add("CFGNorm", [1.0], pos=(-2300, 40), title="CFGNorm")
+    # ===== STAGE 2 model — GGUF + Lightning(+angles) LoRA -> flow-shift + CFGNorm (2511 patch chain) =====
+    gguf = b.add("UnetLoaderGGUF", [QE_GGUF], pos=(1180, 0), title="Qwen-Edit GGUF (Q5)")
+    llora = b.add("LoraLoaderModelOnly", [QE_LIGHTNING, 1.0], pos=(1180, 150), title="Lightning 4-step LoRA")
+    alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, 0.8], pos=(1180, 300), title="Multiple-angles LoRA")
+    msaf = b.add("ModelSamplingAuraFlow", [3.1], pos=(1180, 450), title="ModelSampling (shift 3.1)")
+    cfgn = b.add("CFGNorm", [1.0], pos=(1180, 600), title="CFGNorm")
     b.link(gguf, "MODEL", llora, "model"); b.link(llora, "MODEL", alora, "model")
     b.link(alora, "MODEL", msaf, "model"); b.link(msaf, "MODEL", cfgn, "model")
 
-    clip = b.add("CLIPLoader", [QE_CLIP, "qwen_image", "default"], pos=(-2600, 320), title="Qwen 2.5-VL text encoder")
-    vae = b.add("VAELoader", [QE_VAE], pos=(-2600, 470), title="Qwen Image VAE")
+    # ===== encoders + scale =====
+    clip = b.add("CLIPLoader", [QE_CLIP, "qwen_image", "default"], pos=(1620, 0), title="Qwen 2.5-VL text encoder")
+    vae = b.add("VAELoader", [QE_VAE], pos=(1620, 170), title="Qwen Image VAE")
+    scale = b.add("FluxKontextImageScale", [], pos=(1620, 340), title="Scale ref (hero -> edit)")
+    b.link(hdec, "IMAGE", scale, "image")   # the Stage-1 hero feeds the edit
 
-    # the generated hero (stage 1) feeds the edit; drag the override LoadImage here to use your own.
-    scale = b.add("FluxKontextImageScale", [], pos=(-2300, 620), title="Scale ref")
-    b.link(hdec, "IMAGE", scale, "image")
-
-    # --- instruction: wildcards vary pose/angle/expression while identity is held by the ref ---
+    # ===== instruction + encode (wildcards vary pose/angle/expression; identity held by the ref) =====
     wtext = ("same character, identical face and hair and outfit, keep the same art style, "
              "__angle__, __pose__, __expression__")
     populated = ("same character, identical face and hair and outfit, keep the same art style, "
                  "side view, sitting, neutral expression")
     wild = b.add("ImpactWildcardProcessor",
                  [wtext, populated, "populate", SEED, "randomize", "Select the Wildcard to add to the text"],
-                 pos=(-2000, 320), title="Edit instruction (reroll = variety)")
-
-    posenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(-1680, 180), title="Encode (positive: ref + instruction)")
-    negenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(-1680, 470), title="Encode (negative: empty)")
+                 pos=(2120, 0), title="Edit instruction (reroll = variety)")
+    posenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(2120, 220), title="Encode (positive: hero + instruction)")
+    negenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(2120, 470), title="Encode (negative: empty)")
     for enc in (posenc, negenc):
         b.link(clip, "CLIP", enc, "clip"); b.link(vae, "VAE", enc, "vae"); b.link(scale, "IMAGE", enc, "image1")
     b.link(wild, "STRING", posenc, "prompt")   # instruction drives the positive encoder
 
-    # reference-latent method on both conds (needed for repackaged/GGUF builds)
-    posref = b.add("FluxKontextMultiReferenceLatentMethod", ["index_timestep_zero"], pos=(-1340, 180), title="Ref method (pos)")
-    negref = b.add("FluxKontextMultiReferenceLatentMethod", ["index_timestep_zero"], pos=(-1340, 470), title="Ref method (neg)")
+    # ===== reference-latent method (needed for repackaged/GGUF builds) + init latent =====
+    posref = b.add("FluxKontextMultiReferenceLatentMethod", ["index_timestep_zero"], pos=(2660, 220), title="Ref method (pos)")
+    negref = b.add("FluxKontextMultiReferenceLatentMethod", ["index_timestep_zero"], pos=(2660, 470), title="Ref method (neg)")
     b.link(posenc, "CONDITIONING", posref, "conditioning"); b.link(negenc, "CONDITIONING", negref, "conditioning")
-
-    venc = b.add("VAEEncode", [], pos=(-1340, 620), title="Encode ref -> latent")
+    venc = b.add("VAEEncode", [], pos=(2660, 640), title="Encode hero -> latent")
     b.link(scale, "IMAGE", venc, "pixels"); b.link(vae, "VAE", venc, "vae")
 
-    # Lightning: 6 steps / cfg 1.0 / euler / simple (per the blueprint's settings table)
-    ks = b.add("KSampler", [SEED, "randomize", 6, 1.0, "euler", "simple", 1.0], pos=(-1000, -100), title="Edit KSampler (6 steps)")
+    # ===== edit + decode (Lightning: 6 steps / cfg 1.0 / euler / simple) =====
+    ks = b.add("KSampler", [SEED, "randomize", 6, 1.0, "euler", "simple", 1.0], pos=(3120, 220), title="Edit KSampler (6 steps)")
     b.link(cfgn, "MODEL", ks, "model"); b.link(posref, "CONDITIONING", ks, "positive")
     b.link(negref, "CONDITIONING", ks, "negative"); b.link(venc, "LATENT", ks, "latent_image")
-    vdec = b.add("VAEDecode", [], pos=(-680, -100), title="Decode")
+    vdec = b.add("VAEDecode", [], pos=(3120, 460), title="Decode")
     b.link(ks, "LATENT", vdec, "samples"); b.link(vae, "VAE", vdec, "vae")
 
     note = b.add("Note", [
         f"QWEN-EDIT DATASET TOOL ('{name}') -- self-contained: it MAKES the hero, then re-poses it.\n"
-        "1. STAGE 1: reroll 'Hero Seed' and watch HERO preview until you like the face (it's rendered\n"
-        f"   from this character's id tags in YOUR checkpoint). Then leave Hero Seed fixed on that value.\n"
-        "2. STAGE 2: reroll the 'Edit instruction' seed (batch-queue ~40) -> output/dataset/" + name + "/.\n"
-        "   Each frame = that hero in a new angle/pose/expression, same identity + art style.\n"
-        "3. Curate the best 25-40, then: tools/lora_train/train_lora.ps1 -Char " + name + ".\n"
-        "Bring your OWN hero instead? drag 'HERO override' LoadImage's IMAGE into 'Scale ref'.\n"
+        "STAGE 1 (left): reroll 'Hero Seed' and watch HERO preview until you like the face (rendered\n"
+        "from this character's id tags in YOUR checkpoint). Then leave Hero Seed fixed on that value.\n"
+        "STAGE 2: reroll the 'Edit instruction' seed (batch-queue ~40) -> output/dataset/" + name + "/.\n"
+        "  Each frame = that hero in a new angle/pose/expression, same identity + art style.\n"
+        "Then curate the best 25-40 and run: tools/lora_train/train_lora.ps1 -Char " + name + ".\n"
         "Wildcards (__angle__/__pose__/__expression__) live in ComfyUI-Impact-Pack/wildcards/.\n"
         "Too slow / OOM? re-run install_qwen_edit.ps1 -Quant Q4_K_M. Identity drifting? lower the\n"
         "multiple-angles LoRA strength or simplify the instruction."],
-        pos=(-2000, 560), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
+        pos=(2120, 700), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
 
-    add_finish(b, (vdec, "IMAGE"), f"dataset/{name}/{name}", x=-360)
-    b.group("Hero generator (Illustrious, STAGE 1)", [ck, hvae, hseed, hclip, hpos, hneg, hlat, hks, hdec, hprev], "#535")
-    b.group("Hero override (optional)", [himg], "#553")
-    b.group("Qwen-Edit model + LoRAs", [gguf, llora, alora, msaf, cfgn], "#525")
+    add_finish(b, (vdec, "IMAGE"), f"dataset/{name}/{name}", x=3520)
+    b.group("STAGE 1 - Hero generator (Illustrious)", [ck, hvae, hseed, hclip, hpos, hneg, hlat, hks, hdec, hprev], "#535")
+    b.group("STAGE 2 - Qwen-Edit model + LoRAs", [gguf, llora, alora, msaf, cfgn], "#525")
     b.group("Encoders + scale", [clip, vae, scale], "#535")
-    b.group("Instruction + encode", [wild, posenc, negenc, posref, negref, venc, note], "#355")
+    b.group("Instruction + encode", [wild, posenc, negenc, note], "#355")
+    b.group("Reference + latent", [posref, negref, venc], "#355")
     b.group("Edit + decode", [ks, vdec], "#553")
     return b.build()

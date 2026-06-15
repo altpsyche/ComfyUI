@@ -86,7 +86,6 @@ DOCS = {
     "Best-consistency dataset bootstrap for a FULLY-ORIGINAL character (no danbooru anchor needed).",
     ["STAGE 1: reroll the Hero Seed and watch HERO preview until you like the face; then leave it fixed.",
      "STAGE 2: reroll the Edit-instruction seed (batch-queue ~40) to fill output/dataset/<name>/ with varied poses/angles.",
-     "Bring your own hero instead? drag the 'HERO override' LoadImage's IMAGE into 'Scale ref'.",
      "Curate the on-model ~30 in place, then: train_lora.ps1 -Char <name> (same flow as the hero/IPAdapter route).",
      "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
     ["STAGE 1 hero: euler_a / normal / 30 / cfg 5, 832x1216, your checkpoint (id-driven prompt).",

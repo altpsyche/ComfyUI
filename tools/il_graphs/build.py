@@ -42,7 +42,7 @@ def main():
         roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",
                        "prune": spec.get("prune", "")})
         egname = f"IL_DatasetEdit_{cname}"
-        graphs[egname] = build_dataset_edit(cname, spec["id"], spec.get("outfit", ""), spec.get("hero", ""))
+        graphs[egname] = build_dataset_edit(cname, spec["id"], spec.get("outfit", ""))
         req[egname] = edit_req
         if spec.get("hero_graph"):
             gname = f"IL_Dataset_{cname}"
