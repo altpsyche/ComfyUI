@@ -7,13 +7,15 @@ import json
 from .config import OUT, ROOT, CHARACTERS
 from .docs import md
 from .graphs import (build_base, build_refine, build_guided, build_studio,
-                     build_max, build_ipadapter, build_pose, build_lcm, build_dataset)
+                     build_max, build_ipadapter, build_pose, build_lcm, build_dataset,
+                     build_dataset_edit)
 
 
 def main():
     graphs = {"IL_1_Base": build_base(), "IL_2_Refine": build_refine(), "IL_3_Guided": build_guided(),
               "IL_4_Studio": build_studio(), "IL_5_Max": build_max(),
-              "IL_IPAdapter": build_ipadapter(), "IL_Pose": build_pose(), "IL_LCM": build_lcm()}
+              "IL_IPAdapter": build_ipadapter(), "IL_Pose": build_pose(), "IL_LCM": build_lcm(),
+              "IL_DatasetEdit": build_dataset_edit()}
     base_req = ["CheckpointLoaderSimple", "CLIPSetLastLayer", "KSampler", "VAEDecode", "SaveImage"]
     det_req = base_req + ["UltimateSDUpscale", "FaceDetailer"]
     req = {"IL_1_Base": base_req,
@@ -24,7 +26,11 @@ def main():
                                   "InpaintCropImproved", "InpaintStitchImproved"],
            "IL_IPAdapter": det_req + ["IPAdapterAdvanced"],
            "IL_Pose": det_req + ["ControlNetApplyAdvanced", "OpenposeEditorNode"],
-           "IL_LCM": base_req}   # cfg 1.5 ok: min_cfg rule only checks CFGGuider, LCM uses KSampler
+           "IL_LCM": base_req,   # cfg 1.5 ok: min_cfg rule only checks CFGGuider, LCM uses KSampler
+           # Qwen-Image-Edit graph: no checkpoint/clip-skip (clip_skip & min_cfg rules are vacuous
+           # here -- no CLIPSetLastLayer, no CFGGuider; KSampler cfg 1.0 is intended for Lightning).
+           "IL_DatasetEdit": ["UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
+                              "FluxKontextMultiReferenceLatentMethod", "KSampler", "VAEDecode", "SaveImage"]}
 
     # One IL_Dataset_<name> graph per roster character + a roster.json manifest for the train scripts.
     # A base-tagged (text-only) graph has no IPAdapter, so its require list drops IPAdapterAdvanced

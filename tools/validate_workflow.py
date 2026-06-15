@@ -46,6 +46,8 @@ SIMPLE_MODEL_LOADERS = {
     "UltralyticsDetectorProvider":(0, "ultralytics"),
     "LoraLoader":                 (0, "loras"),
     "LoraLoaderModelOnly":        (0, "loras"),
+    "UnetLoaderGGUF":             (0, "unet"),          # ComfyUI-GGUF; widget0 = gguf in models/unet
+    "CLIPLoader":                 (0, "text_encoders"), # widget0 = text encoder file
     "IPAdapterUnifiedLoader":     None,   # widget = preset name, not a file
     "DiffControlNetLoader":       (0, "controlnet"),
     "DualCLIPLoader":             None,   # multiple clip files, skip

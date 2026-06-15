@@ -57,6 +57,57 @@ EXTRA_TEMPLATES: dict[str, dict] = {
         ["", "", "populate", "Select the LoRA to add to the text",
          "Select the Wildcard to add to the text", SEED, "randomize"],
         size=(400, 280), cnr="ComfyUI-Impact-Pack"),
+    # Impact-Pack wildcard PROCESSOR: expands __wildcards__ -> a plain STRING (no model/clip).
+    # required: wildcard_text, populated_text, mode, seed(+control), "Select to add Wildcard".
+    "ImpactWildcardProcessor": _tpl("ImpactWildcardProcessor",
+        [_io("wildcard_text", "STRING", widget=True), _io("populated_text", "STRING", widget=True),
+         _io("mode", "BOOLEAN", widget=True), _io("seed", "INT", widget=True),
+         _io("Select to add Wildcard", "COMBO", widget=True)],
+        [_io("STRING", "STRING", links=True)],
+        ["", "", "populate", SEED, "randomize", "Select the Wildcard to add to the text"],
+        size=(400, 220), cnr="ComfyUI-Impact-Pack"),
+
+    # ---- Qwen-Image-Edit-2511 (GGUF) edit-dataset nodes. Schemas verified against the live
+    # ComfyUI /object_info + the "Image Edit (Qwen 2511)" blueprint (proven to run, 2026-06-15). ----
+    # GGUF diffusion loader (ComfyUI-GGUF / city96).
+    "UnetLoaderGGUF": _tpl("UnetLoaderGGUF",
+        [_io("unet_name", "COMBO", widget=True)],
+        [_io("MODEL", "MODEL", links=True)],
+        ["qwen-image-edit-2511-Q5_K_M.gguf"], size=(360, 60), cnr="ComfyUI-GGUF"),
+    # model-only LoRA loader (stack Lightning + multiple-angles on the GGUF model).
+    "LoraLoaderModelOnly": _tpl("LoraLoaderModelOnly",
+        [_io("model", "MODEL"), _io("lora_name", "COMBO", widget=True),
+         _io("strength_model", "FLOAT", widget=True)],
+        [_io("MODEL", "MODEL", links=True)],
+        ["", 1.0], size=(340, 82)),
+    # text-encoder loader (Qwen 2.5-VL 7B; type 'qwen_image').
+    "CLIPLoader": _tpl("CLIPLoader",
+        [_io("clip_name", "COMBO", widget=True), _io("type", "COMBO", widget=True),
+         _io("device", "COMBO", widget=True)],
+        [_io("CLIP", "CLIP", links=True)],
+        ["qwen_2.5_vl_7b_fp8_scaled.safetensors", "qwen_image", "default"], size=(396, 106)),
+    # flow-matching shift + CFG normalization (model patches the blueprint applies for 2511).
+    "ModelSamplingAuraFlow": _tpl("ModelSamplingAuraFlow",
+        [_io("model", "MODEL"), _io("shift", "FLOAT", widget=True)],
+        [_io("MODEL", "MODEL", links=True)], [3.1], size=(270, 58)),
+    "CFGNorm": _tpl("CFGNorm",
+        [_io("model", "MODEL"), _io("strength", "FLOAT", widget=True)],
+        [_io("MODEL", "MODEL", links=True)], [1.0], size=(270, 58)),
+    # scale the reference image to the model's optimal pixel budget.
+    "FluxKontextImageScale": _tpl("FluxKontextImageScale",
+        [_io("image", "IMAGE")], [_io("IMAGE", "IMAGE", links=True)], [], size=(230, 26)),
+    # reference-latent method (needed for repackaged/GGUF builds per the blueprint note).
+    "FluxKontextMultiReferenceLatentMethod": _tpl("FluxKontextMultiReferenceLatentMethod",
+        [_io("conditioning", "CONDITIONING"), _io("reference_latents_method", "COMBO", widget=True)],
+        [_io("CONDITIONING", "CONDITIONING", links=True)],
+        ["index_timestep_zero"], size=(310, 58)),
+    # prompt + reference-image joint encoder (2509/2511). Inputs ordered as the blueprint saves them
+    # (clip, vae, image1..3, prompt); vae/image* are optional, prompt accepts a STRING link.
+    "TextEncodeQwenImageEditPlus": _tpl("TextEncodeQwenImageEditPlus",
+        [_io("clip", "CLIP"), _io("vae", "VAE"), _io("image1", "IMAGE"),
+         _io("image2", "IMAGE"), _io("image3", "IMAGE"), _io("prompt", "STRING", widget=True)],
+        [_io("CONDITIONING", "CONDITIONING", links=True)],
+        [""], size=(420, 200), cnr="comfy-core"),
 }
 for _k, _v in EXTRA_TEMPLATES.items():
     TEMPLATES.setdefault(_k, _v)

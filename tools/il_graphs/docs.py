@@ -78,11 +78,32 @@ DOCS = {
      "Wildcards live in custom_nodes/ComfyUI-Impact-Pack/wildcards/ (outfit / pose / angle / framing / expression .txt).",
      "Outfit: signature (fixed) by default; set vary_outfit=True in the roster for a swappable-outfit LoRA.",
      "Face detailer uses a pose-NEUTRAL identity prompt so re-rolled crops don't fight the body pose."]),
+  "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF). Re-poses ONE original "
+    "hero portrait into many varied shots while holding identity AND the hero's art style. The hero "
+    "is rendered in your Illustrious checkpoint (so style is preserved); Qwen-Edit only changes "
+    "pose/angle/expression per a wildcard instruction. Needs scripts/install_qwen_edit.ps1 + the "
+    "ComfyUI-GGUF node.",
+    "Best-consistency dataset bootstrap for a FULLY-ORIGINAL character (no danbooru anchor needed).",
+    ["Render an original portrait in IL_1_Base (your style); put it in ComfyUI/input/ and select it in 'HERO >> LOAD'.",
+     "Set the Save prefix to dataset/<name>/<name>.",
+     "Reroll the Edit-instruction seed (batch-queue ~40) to fill output/dataset/<name>/ with varied poses/angles.",
+     "Curate the on-model ~30 in place, then: train_lora.ps1 -Char <name> (same flow as the hero/IPAdapter route).",
+     "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
+    ["Lightning 4-step LoRA -> KSampler 6 steps / cfg 1.0 / euler / simple (fast; makes Q5 practical on 16 GB).",
+     "Multiple-angles LoRA (strength ~0.8) drives camera-angle variety; lower it if identity drifts.",
+     "Reference-latent-method nodes are kept ON (needed for the repackaged GGUF build).",
+     "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",
+     "Wildcards (__angle__/__pose__/__expression__) live in custom_nodes/ComfyUI-Impact-Pack/wildcards/."]),
 }
 
 
 def md(name, g):
-    key = "IL_Dataset" if name.startswith("IL_Dataset") else name   # shared doc for every IL_Dataset_<char>
+    if name == "IL_DatasetEdit":
+        key = "IL_DatasetEdit"
+    elif name.startswith("IL_Dataset"):
+        key = "IL_Dataset"          # shared doc for every IL_Dataset_<char>
+    else:
+        key = name
     summary, when, steps, knobs = DOCS[key]
     stages = " -> ".join(grp["title"] for grp in sorted(g["groups"], key=lambda gr: gr["bounding"][0]))
     s = [f"# {name}", "", summary, "", f"**When to use:** {when}", "",
