@@ -99,10 +99,14 @@ CHARACTERS = {
         "outfit": "cream knit sweater, blue jeans",   # clothes (kept separate from identity)
         "vary_outfit": False,   # False = signature outfit; True = __outfit__ wildcard (swappable)
         "prune": "",            # optional: exact tags to BAKE into the trigger ("" = leave promptable)
+        "base": "",             # "" = original face (hero + light IPAdapter); see below
         # "trigger": "ariachar"  # optional; defaults to "<name>char"
     },
     "kael": { "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
-              "outfit": "brown aviator jacket, white shirt", "vary_outfit": False, "prune": "" },
+              "outfit": "brown aviator jacket, white shirt", "vary_outfit": False, "prune": "", "base": "" },
+    # base SET = text-only path: the danbooru tag carries the face, IPAdapter auto-OFF.
+    "nyx": { "id": "1girl, solo", "outfit": "casual hoodie, jeans", "vary_outfit": False,
+             "prune": "", "base": "ganyu (genshin impact)" },
 }
 ```
 
@@ -115,6 +119,14 @@ Field-by-field:
   the face/body and outfit stays promptable (and don't prune outfit tags then).
 - **`prune`** — exact tags `train_lora` strips from captions so they fold into the trigger (stronger
   identity lock). `""` keeps identity tags promptable. See [Phase 4](#8-phase-4--caption--train).
+- **`base`** — *(optional)* a known **danbooru character tag** prepended to the prompt. When set, the
+  tag carries a consistent face, so the generator drops the hero portrait + IPAdapter entirely
+  (**pure-text, no-drift** path — Illustrious knows Danbooru-2024). When `""` (default), identity
+  comes from the in-graph hero + light IPAdapter (original-face route). Paste the tag **raw**, parens
+  and all (e.g. `ganyu (genshin impact)`) — the generator escapes the parens so CLIP doesn't read
+  them as prompt weights. Keep `id` minimal when using `base` so the tag dominates the face. (This
+  shapes *generation* only; trigger/prune are unchanged. To bake the base identity into your trigger,
+  add the danbooru tag to `prune` at caption time — see [Phase 4](#8-phase-4--caption--train).)
 - **`trigger`** — the caption keyword (default `<name>char`, e.g. `ariachar`). Use a *rare* string.
 
 Then **regenerate**:
@@ -148,14 +160,18 @@ prune) that the train scripts read.
   `vary_outfit`).
 
 ### 6d. Graph anatomy (what each group does)
+> The **Hero portrait** and **IPAdapter face lock** groups exist only when `base` is **empty**. With
+> `base` set (text-only path) both are omitted and the face detailer runs on the raw checkpoint —
+> the danbooru tag carries the identity.
+
 | Group | Does |
 |---|---|
-| **Load + Seeds** | checkpoint, VAE, CLIP skip −2, two seeds (Hero = identity, Gen = variety), negative. |
-| **Hero portrait (identity source)** | `identity + outfit + portrait suffix` → fixed-seed 832×1216 txt2img → **HERO preview**. The single face source. |
-| **IPAdapter face lock (light)** | `IPAdapterUnifiedLoader (PLUS FACE)` + `IPAdapterAdvanced` (weight **0.55**, **V only** — light, so wildcard expressions/poses still vary). Hero-identity model used **only** by the face detailer. |
-| **Variation prompt** | `ImpactWildcardEncode`: `identity + (outfit|__outfit__) + __framing__ __angle__ __pose__ __expression__`. Rolls new values each Gen Seed. |
+| **Load + Seeds** | checkpoint, VAE, CLIP skip −2, seeds (base-empty: Hero = identity + Gen = variety; base-set: Gen only), negative. |
+| **Hero portrait (identity source)** *(base empty)* | `identity + outfit + portrait suffix` → fixed-seed 832×1216 txt2img → **HERO preview**. The single face source. |
+| **IPAdapter face lock (light)** *(base empty)* | `IPAdapterUnifiedLoader (PLUS FACE)` + `IPAdapterAdvanced` (weight **0.55**, **V only** — light, so wildcard expressions/poses still vary). Hero-identity model used **only** by the face detailer. |
+| **Variation prompt** | `ImpactWildcardEncode`: `(base +) identity + (outfit\|__outfit__) + __framing__ __angle__ __pose__ __expression__`. Rolls new values each Gen Seed. |
 | **Batched generation** | `Gen KSampler` on the **raw checkpoint** (clean render) batch 4 → decode. |
-| **Face + Hand Detail** | Face detector + SAM2 → **FaceDetailer on the IPAdapter model** (denoise **0.5**, pose-neutral cond) imposes the hero face in the crop; Hand detailer on the raw model. |
+| **Face + Hand Detail** | Face detector + SAM2 → **FaceDetailer** (base empty: on the IPAdapter model, denoise 0.4, imposes the hero face; base set: on the raw model, denoise 0.3) with pose-neutral cond; Hand detailer on the raw model. |
 | **Finish + Save** | `SaveImage` prefix `dataset/<name>/<name>` → `output/dataset/<name>/`. |
 
 Base sampler config (identical to IL_1_Base): `euler_ancestral` / `normal` / 30 steps / CFG 5,
@@ -268,7 +284,8 @@ the model's style.
 
 | Goal | Dial |
 |---|---|
-| Dataset face drifts | IPAdapter `weight` ↑ (0.55→0.7) — but don't over-lock; varied ≠ wrong |
+| Dataset face drifts (base-empty) | IPAdapter `weight` ↑ (0.55→0.7) — but don't over-lock; varied ≠ wrong |
+| Dataset face drifts (base set) | pick a more iconic danbooru `base` tag, or trim `id` so the tag dominates |
 | Dataset face melty | FaceDetailer `denoise` ↓ (0.5→0.4) |
 | LoRA identity weak at inference | train strength ↑ (0.75→0.9), add `-TrainTextEncoder`, more steps |
 | LoRA overfits dataset poses | fewer `-Steps`/`-Epochs`, more varied dataset |

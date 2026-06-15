@@ -62,16 +62,19 @@ DOCS = {
     ["Edit prompts. Queue."],
     ["KSampler: lcm / sgm_uniform / 8 steps / cfg 1.5. lcm-lora ON in the loader."]),
   "IL_Dataset": ("Synthetic training-data generator — one IL_Dataset_<name> graph per CHARACTERS "
-    "roster entry. A fixed-seed hero portrait feeds an IPAdapter PLUS-FACE that pins that face onto "
-    "every render; an Impact wildcard prompt varies (outfit)/pose/angle/framing/expression and the "
-    "Gen Seed re-rolls. No external image loads.",
+    "roster entry. Identity consistency comes from one of two modes: a roster **base** danbooru "
+    "character tag (text-only — the tag carries the face, IPAdapter OFF), or — when base is empty — "
+    "a fixed-seed hero portrait feeding a light IPAdapter PLUS-FACE on the face pass only. Either "
+    "way an Impact wildcard prompt varies (outfit)/pose/angle/framing/expression and the Gen Seed "
+    "re-rolls. No external image loads.",
     "Step 1 of training a character-consistency LoRA: generate a varied, on-model image set per character.",
     ["Add/edit characters in the CHARACTERS roster (tools/il_graphs/config.py), then regenerate.",
-     "Open IL_Dataset_<name>. Hero Seed FIXED; pick a hero portrait you like — it becomes the locked face.",
+     "Open IL_Dataset_<name>. base set = no hero step. base empty = Hero Seed FIXED; pick a hero portrait (it becomes the locked face).",
      "Reroll the Gen Seed (batch of 4) to fill output/dataset/<name>/ with ~60 varied shots.",
      "Curate the on-model ~30 in place, then: train_lora.ps1 -Char <name>  (or train_all.ps1 for the whole roster).",
      "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
-    ["IPAdapter PLUS-FACE weight 0.6 — holds the face while pose prompts still move the body.",
+    ["base (roster) = a known danbooru character tag → pure-text path, IPAdapter auto-OFF, consistent-by-tag; leave empty for the hero+IPAdapter original-face route.",
+     "IPAdapter PLUS-FACE weight 0.55 V-only (base-empty mode only) — holds the face while pose prompts still move the body.",
      "Wildcards live in custom_nodes/ComfyUI-Impact-Pack/wildcards/ (outfit / pose / angle / framing / expression .txt).",
      "Outfit: signature (fixed) by default; set vary_outfit=True in the roster for a swappable-outfit LoRA.",
      "Face detailer uses a pose-NEUTRAL identity prompt so re-rolled crops don't fight the body pose."]),
