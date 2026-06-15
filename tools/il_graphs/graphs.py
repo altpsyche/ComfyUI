@@ -96,17 +96,6 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
     hprev = b.add("PreviewImage", [], pos=(-1400, -460), title="HERO preview (reroll Hero Seed to pick the face)")
     b.link(hdec, "IMAGE", hprev, "images")
 
-    # --- IPAdapter PLUS-FACE: builds a hero-identity-locked model used ONLY by the face detailer
-    # below (NOT the base render — putting IPAdapter on the whole gen washes/softens it). ---
-    ipl = b.add("IPAdapterUnifiedLoader", ["PLUS FACE (portraits)"], pos=(-1400, 60), title="IPAdapter loader")
-    # K+V (not "V only") transfers far more of the hero's identity — safe here because IPAdapter
-    # touches ONLY the face crop, so the old "K+V bleaches the whole scene" problem can't happen.
-    ipa = b.add("IPAdapterAdvanced", [0.85, "ease in-out", "concat", 0, 1, "K+V"],
-                pos=(-1400, 230), title="IPAdapter apply (face lock, 0.85 K+V)")
-    b.link(ck, "MODEL", ipl, "model")
-    b.link(ipl, "model", ipa, "model"); b.link(ipl, "ipadapter", ipa, "ipadapter")
-    b.link(hdec, "IMAGE", ipa, "image")
-
     # --- variation prompt: identity + outfit + wildcards (reroll Gen Seed to repopulate) ---
     # vary_outfit True -> __outfit__ wildcard (swappable-outfit LoRA); False -> fixed outfit (signature).
     outfit_tok = "__outfit__" if vary_outfit else outfit
@@ -116,7 +105,7 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
                [wtext, populated, "populate", "Select the LoRA to add to the text",
                 "Select the Wildcard to add to the text", SEED, "randomize"],
                pos=(-1060, -100), title="Wildcard prompt (outfit/pose/angle/framing/expr)")
-    # base render uses the RAW checkpoint (clean, crisp); IPAdapter is applied only at the face pass.
+    # base render uses the RAW checkpoint (clean, crisp); the hero face is SWAPPED on at the end.
     b.link(ck, "MODEL", we, "model"); b.link(clip, "CLIP", we, "clip")
 
     # --- batched generation (varying seed) ---
@@ -129,31 +118,37 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
     mdec = b.add("VAEDecode", [], pos=(-400, -100), title="Gen decode")
     b.link(mks, "LATENT", mdec, "samples"); b.link(vae, "VAE", mdec, "vae")
 
-    # --- lock the hero face IN THE FACE CROP ONLY (clean base elsewhere), pose-NEUTRAL cond ---
+    # --- clean the face + hands on the RAW model (a good swap target), pose-NEUTRAL face cond ---
     nface = b.add("CLIPTextEncode", [identity], pos=(-400, 220), title="Face detail (neutral identity)")
     b.link(clip, "CLIP", nface, "clip")
-    c = dict(msrc=(we, "model"), clip=clip, vae=vae,   # msrc = raw checkpoint (base + hand stay clean)
+    c = dict(msrc=(we, "model"), clip=clip, vae=vae,   # msrc = raw checkpoint (clean render throughout)
              cpos=(we, "conditioning"), cneg=(neg, "CONDITIONING"), seed=gseed)
-    h = add_detailers(b, c, (mdec, "IMAGE"), x=-60, face_cond=(nface, "CONDITIONING"),
-                      face_model=(ipa, "MODEL"), face_denoise=0.5)   # face pass = IPAdapter hero lock
+    h = add_detailers(b, c, (mdec, "IMAGE"), x=-60, face_cond=(nface, "CONDITIONING"))
+
+    # --- ReActor: paste the HERO's EXACT face onto every image (true identity, last step) ---
+    rs = b.add("ReActorFaceSwap",
+               [True, "inswapper_128.onnx", "retinaface_resnet50", "none", 1, 0.5, "no", "no", "0", "0", 1],
+               pos=(1100, -100), title="ReActor face swap (hero -> gen)")
+    b.link(h[0], h[1], rs, "input_image")        # target = the generated image
+    b.link(hdec, "IMAGE", rs, "source_image")    # source = the hero face
 
     note = b.add("Note", [
         f"DATASET TOOL for character '{name}' (one graph per CHARACTERS entry in config).\n"
-        "1. Hero Seed fixed; pick a hero portrait you like (it sets the face).\n"
+        "1. Hero Seed fixed; pick a hero in HERO preview -- its face is swapped onto every shot.\n"
         f"2. Reroll Gen Seed (batch of 4) -> ~60 varied shots into output/dataset/{name}/.\n"
+        "   Clean RAW base render; ReActor pastes the hero's EXACT face on at the end.\n"
         "3. Delete the off-model ones IN PLACE (curation) -- no file moving.\n"
-        f"4. Train:  tools/lora_train/train_lora.ps1 -Char {name}   (auto-captions + trains)\n"
-        "   or train every roster character at once:  tools/lora_train/train_all.ps1\n"
-        "Edit identity/outfit/vary_outfit in CHARACTERS (config.py) + regenerate.\n"
-        "Wildcards: outfit/pose/angle/framing/expression .txt in ComfyUI-Impact-Pack/wildcards/."],
-        pos=(-1060, 500), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
+        f"4. Train:  tools/lora_train/train_lora.ps1 -Char {name}   (or train_all.ps1 for the roster)\n"
+        "ReActor needs its models (inswapper_128 + insightface): setup.bat / install_node_reqs.ps1.\n"
+        "Edit identity/outfit/vary_outfit in CHARACTERS (config.py) + regenerate."],
+        pos=(-1060, 520), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
 
     # SaveImage splits the prefix on the LAST "/": "dataset/<name>/<name>" => a real per-character
     # subfolder output/dataset/<name>/ (just "dataset/<name>" would dump every character into output/dataset/).
-    add_finish(b, h, f"dataset/{name}/{name}", x=1100)
+    add_finish(b, (rs, "SWAPPED_IMAGE"), f"dataset/{name}/{name}", x=1460)
     b.group("Load + Seeds", [ck, vae, hseed, gseed, clip, neg], "#535")
     b.group("Hero portrait (identity source)", [hpos, hlat, hks, hdec, hprev], "#525")
-    b.group("IPAdapter face lock", [ipl, ipa], "#525")
     b.group("Variation prompt", [we, mlat, note], "#355")
     b.group("Batched generation", [mks, mdec, nface], "#553")
+    b.group("ReActor face swap (hero face)", [rs], "#525")
     return b.build()

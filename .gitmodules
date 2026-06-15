@@ -82,3 +82,6 @@
 [submodule "tools/sd-scripts"]
 	path = tools/sd-scripts
 	url = https://github.com/kohya-ss/sd-scripts
+[submodule "custom_nodes/comfyui-reactor-node"]
+	path = custom_nodes/comfyui-reactor-node
+	url = https://codeberg.org/Gourieff/comfyui-reactor-node

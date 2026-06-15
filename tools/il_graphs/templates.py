@@ -26,6 +26,24 @@ def _tpl(ntype, ins, outs, wv, size=(220, 100), cnr="comfy-core"):
             "properties": {"cnr_id": cnr, "Node name for S&R": ntype}, "widgets_values": wv}
 
 EXTRA_TEMPLATES: dict[str, dict] = {
+    # ReActor face swap (paste the hero's exact face onto each generated image).
+    # Schema from comfyui-reactor-node/nodes.py class `reactor` (ReActorFaceSwap).
+    # widgets: [enabled, swap_model, facedetection, face_restore_model, face_restore_visibility,
+    #           codeformer_weight, detect_gender_input, detect_gender_source,
+    #           input_faces_index, source_faces_index, console_log_level]
+    "ReActorFaceSwap": _tpl("ReActorFaceSwap",
+        [_io("enabled", "BOOLEAN", widget=True), _io("input_image", "IMAGE"),
+         _io("swap_model", "COMBO", widget=True), _io("facedetection", "COMBO", widget=True),
+         _io("face_restore_model", "COMBO", widget=True),
+         _io("face_restore_visibility", "FLOAT", widget=True), _io("codeformer_weight", "FLOAT", widget=True),
+         _io("detect_gender_input", "COMBO", widget=True), _io("detect_gender_source", "COMBO", widget=True),
+         _io("input_faces_index", "STRING", widget=True), _io("source_faces_index", "STRING", widget=True),
+         _io("console_log_level", "COMBO", widget=True),
+         _io("source_image", "IMAGE"), _io("face_model", "FACE_MODEL"), _io("face_boost", "FACE_BOOST")],
+        [_io("SWAPPED_IMAGE", "IMAGE", links=True), _io("FACE_MODEL", "FACE_MODEL", links=True),
+         _io("ORIGINAL_IMAGE", "IMAGE", links=True)],
+        [True, "inswapper_128.onnx", "retinaface_resnet50", "none", 1, 0.5, "no", "no", "0", "0", 1],
+        size=(360, 360), cnr="comfyui-reactor-node"),
     # Impact-Pack wildcard prompt encoder (model+clip -> conditioning, expands __wildcards__).
     # Schema read from impact_pack.py ImpactWildcardEncode INPUT_TYPES / RETURN_TYPES.
     "ImpactWildcardEncode": _tpl("ImpactWildcardEncode",
