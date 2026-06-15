@@ -1,0 +1,18 @@
+# sd-scripts dataset config for one character LoRA.
+# Copy to dataset_charB.toml and change image_dir for the second character.
+[general]
+shuffle_caption = true
+keep_tokens = 1          # protect the trigger token (first tag) from shuffling
+caption_extension = ".txt"
+
+[[datasets]]
+resolution = 1024
+batch_size = 2
+enable_bucket = true     # multi-aspect: dataset has portrait + landscape + square
+min_bucket_reso = 768
+max_bucket_reso = 1280
+bucket_reso_steps = 64
+
+  [[datasets.subsets]]
+  image_dir = "C:/Users/vsiva/dev/ComfyUI/output/dataset/charA"
+  num_repeats = 8        # ~30 imgs * 8 * 10 epochs / batch 2 ≈ 1200-1500 steps

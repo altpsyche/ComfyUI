@@ -79,3 +79,6 @@
 [submodule "custom_nodes/comfyui_text_to_pose"]
 	path = custom_nodes/comfyui_text_to_pose
 	url = https://github.com/logicalor/comfyui_text_to_pose
+[submodule "tools/sd-scripts"]
+	path = tools/sd-scripts
+	url = https://github.com/kohya-ss/sd-scripts

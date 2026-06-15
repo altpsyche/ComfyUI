@@ -10,6 +10,7 @@ setlocal EnableDelayedExpansion
 ::   setup.bat                    # NVIDIA autodetect (default)
 ::   setup.bat --gpu <mode>       # override GPU mode (see below)
 ::   setup.bat --skip-torch       # skip torch (already installed)
+::   setup.bat --with-trainer     # also provision the LoRA-training venv (sd-scripts, Blackwell torch)
 ::   setup.bat --no-color         # disable ANSI colors
 ::
 :: --gpu modes:
@@ -34,9 +35,11 @@ if not "%~1"=="--no-color" color 0a
 
 set "SKIP_TORCH=0"
 set "GPU_MODE=nvidia"
+set "WITH_TRAINER=0"
 :parse
 if "%~1"=="" goto begin
 if /I "%~1"=="--skip-torch" set "SKIP_TORCH=1"
+if /I "%~1"=="--with-trainer" set "WITH_TRAINER=1"
 if /I "%~1"=="--gpu" (
     set "GPU_MODE=%~2"
     shift
@@ -176,6 +179,18 @@ if errorlevel 1 (
 echo.
 
 :: ----------------------------------------------------------------------------
+:: [optional] LoRA trainer venv  (--with-trainer)
+:: ----------------------------------------------------------------------------
+if "%WITH_TRAINER%"=="1" (
+    echo [+] Provisioning LoRA trainer venv ^(sd-scripts submodule, Blackwell torch^)...
+    powershell -ExecutionPolicy Bypass -File "%ROOT%\scripts\install_trainer.ps1"
+    if errorlevel 1 (
+        echo   [!] trainer venv install reported issues - see above
+    )
+    echo.
+)
+
+:: ----------------------------------------------------------------------------
 :: [6/6] Verify
 :: ----------------------------------------------------------------------------
 echo [6/6] Verifying install...
@@ -197,6 +212,7 @@ echo.
 echo Next steps:
 echo   1. (Workflows + models live in a separate repo - see ONBOARDING.md)
 echo   2. run_comfy.bat                - launch ComfyUI
+if "%WITH_TRAINER%"=="1" echo   3. tools\lora_train\README.md   - generate data, caption, train a character LoRA
 echo.
 goto eof
 

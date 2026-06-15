@@ -2,6 +2,8 @@
 
 This fork pins every required custom node + tooling submodule for reproducible engine setup across machines. **Workflows + models live in separate repos**; this repo is the engine only.
 
+> Map of the fork (every batch file, script, and tool dir): [FORK_README.md](FORK_README.md).
+
 ```powershell
 # 1. Clone with all submodules (uses SSH — github SSH key required)
 git clone --recurse-submodules git@github.com:<your-user>/ComfyUI.git
@@ -17,6 +19,9 @@ cd ComfyUI
 .\setup.bat --gpu amd-rdna4      # AMD RX 9000
 .\setup.bat --gpu intel-xpu      # Intel Arc
 .\setup.bat --gpu cpu            # CPU only
+
+#    Optional: also build the LoRA-training venv (kohya sd-scripts, multi-GB torch cu128):
+.\setup.bat --with-trainer       # see tools/lora_train/README.md
 
 # 3. Get your workflows + model manifest (separate repo, planned)
 #    git clone git@github.com:<your-user>/comfyui-workflows.git
