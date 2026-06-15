@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .builder import Builder
-from .config import (CKPT, VAE, SEED, NEG, CHAR, CHAR_NAME, REF_SUFFIX,
+from .config import (CKPT, VAE, SEED, NEG, CHAR, CHAR_NAME, OUTFIT, VARY_OUTFIT, REF_SUFFIX,
                      BASE_SAMPLER, BASE_SCHED, BASE_STEPS, BASE_CFG, NOTE_C, NOTE_BG)
 from .layers import (core, add_upscale, add_detailers, add_face_inpaint,
                      add_bg, add_finish)
@@ -82,7 +82,8 @@ def build_dataset():
     b.link(clip, "CLIP", neg, "clip")
 
     # --- HERO portrait (in-graph, fixed seed): the single identity source ---
-    hpos = b.add("CLIPTextEncode", [CHAR + REF_SUFFIX], pos=(-2060, -200), title="Hero portrait prompt")
+    # Hero always wears the fixed OUTFIT (it's only the face source; IPAdapter is face-only anyway).
+    hpos = b.add("CLIPTextEncode", [CHAR + ", " + OUTFIT + REF_SUFFIX], pos=(-2060, -200), title="Hero portrait prompt")
     b.link(clip, "CLIP", hpos, "clip")
     hlat = b.add("EmptyLatentImage", [832, 1216, 1], pos=(-2060, 60), title="Hero latent 832x1216")
     hks = b.add("KSampler", [SEED, "fixed", BASE_STEPS, BASE_CFG, BASE_SAMPLER, BASE_SCHED, 1.0],
@@ -101,13 +102,15 @@ def build_dataset():
     b.link(ipl, "model", ipa, "model"); b.link(ipl, "ipadapter", ipa, "ipadapter")
     b.link(hdec, "IMAGE", ipa, "image")
 
-    # --- variation prompt: identity tags + wildcards (reroll Gen Seed to repopulate) ---
-    wtext = CHAR + ", __framing__, __angle__, __pose__, __expression__"
-    populated = CHAR + ", upper body, front view, standing, neutral expression"
+    # --- variation prompt: identity + outfit + wildcards (reroll Gen Seed to repopulate) ---
+    # VARY_OUTFIT True -> __outfit__ wildcard (swappable-outfit LoRA); False -> fixed OUTFIT (signature).
+    outfit_tok = "__outfit__" if VARY_OUTFIT else OUTFIT
+    wtext = CHAR + ", " + outfit_tok + ", __framing__, __angle__, __pose__, __expression__"
+    populated = CHAR + ", " + OUTFIT + ", upper body, front view, standing, neutral expression"
     we = b.add("ImpactWildcardEncode",
                [wtext, populated, "populate", "Select the LoRA to add to the text",
                 "Select the Wildcard to add to the text", SEED, "randomize"],
-               pos=(-1060, -100), title="Wildcard prompt (pose/angle/framing/expr)")
+               pos=(-1060, -100), title="Wildcard prompt (outfit/pose/angle/framing/expr)")
     b.link(ipa, "MODEL", we, "model"); b.link(clip, "CLIP", we, "clip")
 
     # --- batched generation (varying seed) ---
@@ -136,7 +139,9 @@ def build_dataset():
         "3. Reroll Gen Seed (batch of 4) -> ~60 varied shots straight into that folder.\n"
         "4. Delete the off-model ones IN PLACE (curation), then run:\n"
         "     tools/lora_train/train_lora.ps1 -Char <name>   (auto-captions + trains)\n"
-        "Wildcards: pose/angle/framing/expression .txt in ComfyUI-Impact-Pack/wildcards/."],
+        "Outfit: signature outfit by default; for a SWAPPABLE-outfit LoRA set VARY_OUTFIT=True\n"
+        "in config (or change OUTFIT to '__outfit__' in the Wildcard prompt above).\n"
+        "Wildcards: outfit/pose/angle/framing/expression .txt in ComfyUI-Impact-Pack/wildcards/."],
         pos=(-1060, 500), title="How to use", color=NOTE_C, bgcolor=NOTE_BG)
 
     add_finish(b, h, f"dataset/{CHAR_NAME}", x=1100)

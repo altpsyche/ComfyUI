@@ -70,7 +70,8 @@ DOCS = {
      "Curate the on-model ~30, caption (WD14 + a unique trigger token), then train the LoRA.",
      "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
     ["IPAdapter PLUS-FACE weight 0.6 — high enough to hold the face, low enough that pose prompts still move the body.",
-     "Wildcards live in custom_nodes/ComfyUI-Impact-Pack/wildcards/ (pose / angle / framing / expression .txt).",
+     "Wildcards live in custom_nodes/ComfyUI-Impact-Pack/wildcards/ (outfit / pose / angle / framing / expression .txt).",
+     "Outfit: signature (fixed OUTFIT) by default; set VARY_OUTFIT=True in config for a swappable-outfit LoRA.",
      "Face detailer uses a pose-NEUTRAL identity prompt so re-rolled crops don't fight the body pose."]),
 }
 

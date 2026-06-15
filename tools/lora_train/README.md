@@ -18,6 +18,12 @@ flow is fully parameterized — no per-character file copies, no manual file mov
 
 For a second character, change the prompt + SaveImage prefix to `dataset/<other>` and repeat.
 
+**Outfit:** by default every shot wears the fixed `OUTFIT` → the LoRA reproduces that *signature*
+outfit. For a **swappable-outfit** LoRA, set `VARY_OUTFIT = True` in `config.py` (or change `OUTFIT`
+to `__outfit__` in the Wildcard prompt node): the dataset then varies clothes via the `__outfit__`
+wildcard so the LoRA learns the face/body, not the clothes — and **don't** prune outfit tags at
+train time so they stay promptable.
+
 ## 2. Set up the trainer venv  (one-time, Blackwell-ready)
 
 sd-scripts is vendored in-repo as a submodule at **`tools/sd-scripts`** (a fresh `setup.bat`
