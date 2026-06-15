@@ -206,6 +206,31 @@ Edit those `.txt` files (one option per line) to change variety:
 When you find values you like, either leave them in the open graph or bake them into
 `tools/il_graphs/graphs.py` so future regenerations keep them.
 
+### 6g. Alternative bootstrap — Qwen-Image-Edit (IL_DatasetEdit) for fully-original characters
+
+The hero+IPAdapter route locks a face *crop*. For a **fully-original** character (no danbooru
+anchor) the stronger 2026 option is to **re-pose one hero with an image-edit model** — it varies the
+*whole figure* while holding identity, then you train the Illustrious LoRA as usual.
+
+One-time setup (downloads ~23 GB; needs the `ComfyUI-GGUF` submodule):
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1      # -Quant Q4_K_M for less VRAM
+```
+This fetches Qwen-Image-Edit-2511 (GGUF Q5) + the qwen2.5-vl-7b encoder + qwen_image VAE + the
+Lightning-4step and multiple-angles LoRAs into `models/`.
+
+Use it (workflow **`IL_DatasetEdit`**, emitted by `build_il_graphs.py`):
+1. Render one original portrait in **IL_1_Base** (your checkpoint = your style); drop it in
+   `ComfyUI/input/` and pick it in **HERO >> LOAD**.
+2. Set the Save prefix to `dataset/<name>/<name>`.
+3. Reroll the **Edit instruction** seed (batch-queue ~40) → `output/dataset/<name>/` — each is the same
+   character in a new `__angle__/__pose__/__expression__`, style preserved.
+4. Curate + train exactly as below (`train_lora.ps1 -Char <name>`).
+
+Why it keeps your style: edit models preserve the *input* image's style, and the hero is rendered in
+Illustrious. Runs on 16 GB via the Lightning LoRA (KSampler 6 steps / cfg 1.0). Too slow / OOM →
+re-run the installer with `-Quant Q4_K_M`. Identity drifting → lower the multiple-angles LoRA strength.
+
 ## 7. Phase 3 — curate
 
 Open `output/dataset/<name>/` and **delete in place** (no moving — they're already where the trainer
@@ -349,6 +374,7 @@ custom_nodes/ComfyUI-Impact-Pack/wildcards/   pose/angle/framing/outfit/expressi
 output/dataset/<name>/        your generated + curated images
 models/loras/<name>_v1.safetensors   trained output
 scripts/install_trainer.ps1   builds the trainer venv (setup.bat --with-trainer)
+scripts/install_qwen_edit.ps1 downloads the Qwen-Image-Edit-2511 stack (IL_DatasetEdit)
 ```
 
 Key defaults: checkpoint `oneObsession_v19Atypical` · VAE `sdxl_vae_f16_fix` · CLIP skip −2 ·
