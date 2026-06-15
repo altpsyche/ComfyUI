@@ -81,7 +81,11 @@ if ($SkipCaption) {
     $rc = $LASTEXITCODE
     Pop-Location
     if ($rc -ne 0) { Die "WD14 tagger failed (rc=$rc)" }
-    & $py (Join-Path $PSScriptRoot 'prep_captions.py') $data --trigger $Trigger --prune $Prune
+    # NB: only pass --prune when non-empty -- PowerShell drops an empty-string arg, leaving argparse
+    # to see "--prune" with no value (errors). prep_captions defaults --prune to "" anyway.
+    $prepArgs = @($data, '--trigger', $Trigger)
+    if ($Prune) { $prepArgs += @('--prune', $Prune) }
+    & $py (Join-Path $PSScriptRoot 'prep_captions.py') @prepArgs
     if ($LASTEXITCODE -ne 0) { Die "prep_captions failed" }
 }
 
