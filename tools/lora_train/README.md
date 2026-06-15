@@ -1,28 +1,27 @@
-# Train a character-consistency LoRA
+# Train character-consistency LoRAs (one or many)
 
-End-to-end: generate a dataset (ComfyUI), set up kohya sd-scripts (one-time), then **one command**
-captions + trains. Load the result in any IL workflow's LoRA bank. One LoRA per character; the
-flow is fully parameterized — no per-character file copies, no manual file moving.
+Define your characters once in a **roster**, generate a dataset per character (ComfyUI), set up
+kohya sd-scripts (one-time), then **one command per character** (or one for the whole roster)
+captions + trains. Load each LoRA in any IL workflow's LoRA bank. Fully parameterized — no
+per-character file copies, no manual file moving.
 
-## 1. Generate the dataset  (ComfyUI)
+## 1. Define the roster + generate datasets  (ComfyUI)
 
-1. Open **IL_Dataset**. Set the character: edit the **Character identity** prompt and the
-   **SaveImage prefix** to `dataset/<name>` (e.g. `dataset/aria`) — both in the UI, no regen.
-   (Or set `CHAR_NAME`/`CHAR` in `tools/il_graphs/config.py` and re-run `build_il_graphs.py`.)
-2. Keep **Hero Seed** fixed; queue once and check the hero portrait — that face gets locked.
-   Reroll Hero Seed until you like it, then leave it fixed.
+1. Edit the **`CHARACTERS`** roster in `tools/il_graphs/config.py` — one entry per character
+   (`id` = identity tags, `outfit`, optional `vary_outfit`/`prune`). Run `python tools/build_il_graphs.py`.
+   This emits one **`IL_Dataset_<name>`** workflow per character (e.g. `IL_Dataset_aria`,
+   `IL_Dataset_kael`) and a `roster.json` the trainer reads.
+2. Open **`IL_Dataset_<name>`** in ComfyUI. Keep **Hero Seed** fixed; queue once and check the hero
+   portrait — that face gets locked. Reroll Hero Seed until you like it, then leave it fixed.
 3. Reroll the **Gen Seed** and queue ~15× (batch of 4) → ~60 shots land **straight in
-   `output/dataset/<name>/`** (each character has its own folder — no collisions, no moving).
+   `output/dataset/<name>/`** (each character its own folder — no collisions, no moving).
 4. **Curate in place:** delete the off-model / melted / duplicate shots, keeping the best
-   **25–40**. That's it — they're already where the trainer expects them.
+   **25–40**. Repeat 2–4 for each character's graph.
 
-For a second character, change the prompt + SaveImage prefix to `dataset/<other>` and repeat.
-
-**Outfit:** by default every shot wears the fixed `OUTFIT` → the LoRA reproduces that *signature*
-outfit. For a **swappable-outfit** LoRA, set `VARY_OUTFIT = True` in `config.py` (or change `OUTFIT`
-to `__outfit__` in the Wildcard prompt node): the dataset then varies clothes via the `__outfit__`
-wildcard so the LoRA learns the face/body, not the clothes — and **don't** prune outfit tags at
-train time so they stay promptable.
+**Outfit:** by default every shot wears the entry's `outfit` → the LoRA reproduces that *signature*
+outfit. For a **swappable-outfit** LoRA, set `"vary_outfit": True` on that roster entry: the dataset
+varies clothes via the `__outfit__` wildcard so the LoRA learns the face/body, not the clothes — and
+**don't** prune outfit tags at train time so they stay promptable.
 
 ## 2. Set up the trainer venv  (one-time, Blackwell-ready)
 
@@ -46,21 +45,24 @@ Sanity-check the venv (GPU compute + sd-scripts + tagger imports):
 ## 3. Caption + train  (one command)
 
 ```powershell
-.\tools\lora_train\train_lora.ps1 -Char aria -Prune "auburn hair,long hair,green eyes,freckles"
+.\tools\lora_train\train_lora.ps1 -Char aria      # one character
+.\tools\lora_train\train_all.ps1                  # every roster character with a curated dataset
 ```
 
-That single script (portable — derives every path from its own location) does the rest:
-1. validates `output/dataset/aria/` has enough images,
-2. **auto-captions** if needed — WD14 booru tagger, then prepends the trigger and prunes the exact
-   identity tags you name (they bake into the trigger; pose/expression/framing tags stay),
+`train_lora.ps1` (portable — derives every path from its own location) does the rest:
+1. validates `output/dataset/<Char>/` has enough images,
+2. **auto-captions** if needed — WD14 booru tagger, then prepends the trigger and prunes any exact
+   identity tags (trigger + prune come from the roster; pose/expression/framing tags stay),
 3. **derives `num_repeats`** from a target step count, so 15 or 50 images both land near target,
 4. writes the dataset config and trains.
 
-Defaults: trigger `<Char>char`, base `oneObsession`, dim 16 / alpha 8, Prodigy lr 1.0 cosine,
-min_snr 5, res 1024 + bucketing, bf16, batch 2, `--sdpa`, unet-only, ~1500 steps. Override any:
-`-Trigger`, `-Base <ckpt>`, `-Dim`, `-Alpha`, `-Steps`, `-Epochs`, `-Batch`, `-TrainTextEncoder`,
-`-SkipCaption`. Output → `models/loras/<Char>_v1.safetensors` (+ one per epoch). A second character
-is just another call: `train_lora.ps1 -Char kael -Prune "..."` — same script, no copies, no moving.
+`train_all.ps1` reads `roster.json` and runs `train_lora.ps1` for each character that has a curated
+dataset (skipping ones you haven't generated yet). Extra args pass through, e.g. `train_all.ps1 -Steps 2000`.
+
+Defaults: trigger `<Char>char` + prune from the roster, base `oneObsession`, dim 16 / alpha 8,
+Prodigy lr 1.0 cosine, min_snr 5, res 1024 + bucketing, bf16, batch 2, `--sdpa`, unet-only, ~1500
+steps. Override any: `-Trigger`, `-Prune`, `-Base <ckpt>`, `-Dim`, `-Alpha`, `-Steps`, `-Epochs`,
+`-Batch`, `-TrainTextEncoder`, `-SkipCaption`. Output → `models/loras/<Char>_v1.safetensors`.
 
 ## 4. Use it  (any IL workflow)
 

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .config import CKPT, POS, NEG, HAND_POS, FACE_POS, CHAR
+from .config import CKPT, POS, NEG, HAND_POS, FACE_POS
 
 PROMPT_INFO = {
   "Positive": ("base generation — and is reused by the upscaler (USDU) and the face detailer; "
@@ -8,11 +8,12 @@ PROMPT_INFO = {
   "Hand positive": ("the hand detailer only (re-renders hands)", HAND_POS),
   "Face positive": ("the native-1024 face-inpaint pass only", FACE_POS),
   "Hero portrait prompt": ("the fixed-seed hero portrait that becomes the IPAdapter face source — "
-     "edit CHAR in config to your character's weighted identity tags",
+     "set this character's id/outfit in the CHARACTERS roster (config.py)",
      "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles, cream knit sweater, "
      "blue jeans, upper body, plain grey background, character portrait"),
   "Face detail (neutral identity)": ("the face detailer — neutral (no pose/gaze tags) so the "
-     "re-rolled face crop doesn't fight the body's pose", CHAR),
+     "re-rolled face crop doesn't fight the body's pose",
+     "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"),
 }
 
 
@@ -60,24 +61,26 @@ DOCS = {
     "Quick composition / prompt checks (~4x faster, lower quality). Switch to a full tier for finals.",
     ["Edit prompts. Queue."],
     ["KSampler: lcm / sgm_uniform / 8 steps / cfg 1.5. lcm-lora ON in the loader."]),
-  "IL_Dataset": ("Synthetic training-data generator for ONE character. A fixed-seed hero portrait "
-    "feeds an IPAdapter PLUS-FACE that pins that face onto every render; an Impact wildcard prompt "
-    "varies pose/angle/framing/expression and the Gen Seed re-rolls. No external image loads.",
-    "Step 1 of training a character-consistency LoRA: generate a varied, on-model image set to caption and train on.",
-    ["Edit CHAR in tools/il_graphs/config.py to your character's weighted identity tags, then regenerate.",
-     "Run with Hero Seed FIXED; pick a hero portrait you like — it becomes the locked face.",
-     "Reroll the Gen Seed repeatedly (batch of 4) to fill output/dataset/ with ~60 varied shots.",
-     "Curate the on-model ~30, caption (WD14 + a unique trigger token), then train the LoRA.",
+  "IL_Dataset": ("Synthetic training-data generator — one IL_Dataset_<name> graph per CHARACTERS "
+    "roster entry. A fixed-seed hero portrait feeds an IPAdapter PLUS-FACE that pins that face onto "
+    "every render; an Impact wildcard prompt varies (outfit)/pose/angle/framing/expression and the "
+    "Gen Seed re-rolls. No external image loads.",
+    "Step 1 of training a character-consistency LoRA: generate a varied, on-model image set per character.",
+    ["Add/edit characters in the CHARACTERS roster (tools/il_graphs/config.py), then regenerate.",
+     "Open IL_Dataset_<name>. Hero Seed FIXED; pick a hero portrait you like — it becomes the locked face.",
+     "Reroll the Gen Seed (batch of 4) to fill output/dataset/<name>/ with ~60 varied shots.",
+     "Curate the on-model ~30 in place, then: train_lora.ps1 -Char <name>  (or train_all.ps1 for the whole roster).",
      "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
-    ["IPAdapter PLUS-FACE weight 0.6 — high enough to hold the face, low enough that pose prompts still move the body.",
+    ["IPAdapter PLUS-FACE weight 0.6 — holds the face while pose prompts still move the body.",
      "Wildcards live in custom_nodes/ComfyUI-Impact-Pack/wildcards/ (outfit / pose / angle / framing / expression .txt).",
-     "Outfit: signature (fixed OUTFIT) by default; set VARY_OUTFIT=True in config for a swappable-outfit LoRA.",
+     "Outfit: signature (fixed) by default; set vary_outfit=True in the roster for a swappable-outfit LoRA.",
      "Face detailer uses a pose-NEUTRAL identity prompt so re-rolled crops don't fight the body pose."]),
 }
 
 
 def md(name, g):
-    summary, when, steps, knobs = DOCS[name]
+    key = "IL_Dataset" if name.startswith("IL_Dataset") else name   # shared doc for every IL_Dataset_<char>
+    summary, when, steps, knobs = DOCS[key]
     stages = " -> ".join(grp["title"] for grp in sorted(g["groups"], key=lambda gr: gr["bounding"][0]))
     s = [f"# {name}", "", summary, "", f"**When to use:** {when}", "",
          f"**Stages:** {stages}", "", "## How to use"]

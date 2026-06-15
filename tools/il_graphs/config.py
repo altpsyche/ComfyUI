@@ -30,21 +30,27 @@ HAND_POS = "detailed hand, perfect hand anatomy, five fingers, correct number of
 FACE_POS = "detailed face, beautiful detailed eyes, symmetrical eyes, sharp focus, detailed skin texture, natural lips"
 NOTE_C, NOTE_BG = "#432", "#322"
 
-# IL_Dataset tool: ONE character at a time.
-#   CHAR_NAME  the output folder (output/dataset/<name>/) + default LoRA trigger/name.
-#   CHAR       the character's IDENTITY tags only (face/hair/eyes/body) — no outfit. Hyper-specific;
-#              these are what the LoRA bakes into the trigger.
-#   OUTFIT     the character's clothes, kept separate from identity.
-#   VARY_OUTFIT  False = every training image wears OUTFIT -> the LoRA reproduces that signature
-#              outfit. True = the dataset varies clothes via the __outfit__ wildcard so the LoRA
-#              learns the face/body and the outfit stays swappable (keep outfit tags in captions
-#              then — don't prune them at train time).
-# Switch characters WITHOUT regenerating by editing the prompt nodes + SaveImage prefix in the
-# ComfyUI UI, or change these and re-run build_il_graphs.py. No file moving either way.
-CHAR_NAME = "charA"
-CHAR = "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"
-OUTFIT = "cream knit sweater, blue jeans"
-VARY_OUTFIT = False
+# IL_Dataset ROSTER — one entry per character you want to train. build_il_graphs.py emits an
+# IL_Dataset_<name> workflow per entry (open it in ComfyUI, generate -> output/dataset/<name>/),
+# and train_lora.ps1 -Char <name> / train_all.ps1 train them. No per-character file editing.
+#   id           identity tags only (face/hair/eyes/body) — what the LoRA bakes into the trigger.
+#   outfit       clothes, kept separate from identity.
+#   vary_outfit  True -> __outfit__ wildcard (swappable-outfit LoRA); False -> fixed signature outfit.
+#   prune        (optional) exact tags train_lora bakes into the trigger; "" = leave identity promptable.
+CHARACTERS = {
+    "aria": {
+        "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",
+        "outfit": "cream knit sweater, blue jeans",
+        "vary_outfit": False,
+        "prune": "",
+    },
+    "kael": {
+        "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
+        "outfit": "brown aviator jacket, white shirt",
+        "vary_outfit": False,
+        "prune": "",
+    },
+}
 # Suffix that turns the identity tags into a clean hero portrait (the IPAdapter face source).
 REF_SUFFIX = (", upper body, plain grey background, simple background, looking at viewer, "
               "neutral expression, character portrait")

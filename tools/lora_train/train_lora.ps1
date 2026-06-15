@@ -39,6 +39,19 @@ $acc   = Join-Path $repo 'tools\lora_train\.venv\Scripts\accelerate.exe'
 $sdDir = Join-Path $repo 'tools\sd-scripts'
 $data  = Join-Path $repo "output\dataset\$Char"
 $outDir = Join-Path $repo 'models\loras'
+# roster defaults (trigger/prune) from the build-generated manifest, unless overridden on the CLI
+$rosterFile = Join-Path $repo 'tools\lora_train\roster.json'
+if (Test-Path $rosterFile) {
+    # NB: WinPS 5.1 ConvertFrom-Json emits the array as one non-enumerated object — iterate with foreach.
+    $roster = Get-Content $rosterFile -Raw | ConvertFrom-Json
+    foreach ($e in $roster) {
+        if ($e.name -eq $Char) {
+            if (-not $Trigger) { $Trigger = [string]$e.trigger }
+            if (-not $PSBoundParameters.ContainsKey('Prune') -and $e.prune) { $Prune = [string]$e.prune }
+            break
+        }
+    }
+}
 if (-not $Trigger) { $Trigger = "${Char}char" }
 if (-not $Base)    { $Base = Join-Path $repo 'models\checkpoints\oneObsession_v19Atypical.safetensors' }
 

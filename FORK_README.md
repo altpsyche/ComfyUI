@@ -59,7 +59,7 @@ ComfyUI's venv. Both work on the RTX 5080 (Blackwell sm_120 needs CUDA 12.8+).
 | **`tools/il_graphs/`** | Python package that generates the **IL_\*** Illustrious/SDXL workflow family (comparison ladder IL_1–5 + feature graphs IL_IPAdapter/Pose/LCM/Dataset, each with a modular **LoRA bank**). Run `python tools/build_il_graphs.py`. Details: [IL_Graphs_README.md](user/default/workflows/IL_Graphs_README.md). |
 | **`tools/build_il_graphs.py`** | Thin entrypoint shim for the `il_graphs` package. |
 | **`tools/validate_workflow.py`** | Validates a generated workflow JSON against its `.rules.toml` (CLIP skip −2, CFG range, required nodes). |
-| **`tools/lora_train/`** | LoRA-training kit: runbook + one parameterized `train_lora.ps1 -Char <name>` (auto-captions + trains), `prep_captions.py`, `verify_env.py`. Full flow: [tools/lora_train/README.md](tools/lora_train/README.md). |
+| **`tools/lora_train/`** | LoRA-training kit: runbook + `train_lora.ps1 -Char <name>` (auto-captions + trains) + `train_all.ps1` (whole roster) + `prep_captions.py` + `verify_env.py`. Characters come from the `CHARACTERS` roster in `il_graphs/config.py` (one `IL_Dataset_<name>` graph each). Full flow: [tools/lora_train/README.md](tools/lora_train/README.md). |
 | **`tools/sd-scripts/`** | kohya-ss/sd-scripts **submodule** (the trainer code). Provisioned by `install_trainer.ps1`. |
 
 ## Submodules

@@ -29,3 +29,4 @@ uv.lock
 
 # generated per-character training dataset configs
 tools/lora_train/.cache/
+tools/lora_train/roster.json
