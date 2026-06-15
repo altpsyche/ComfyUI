@@ -27,7 +27,7 @@ def main():
            "IL_LCM": base_req}   # cfg 1.5 ok: min_cfg rule only checks CFGGuider, LCM uses KSampler
 
     # One IL_Dataset_<name> graph per roster character + a roster.json manifest for the train scripts.
-    ds_req = base_req + ["ImpactWildcardEncode", "FaceDetailer", "ReActorFaceSwap"]
+    ds_req = base_req + ["ImpactWildcardEncode", "FaceDetailer", "IPAdapterAdvanced"]
     roster = []
     for cname, spec in CHARACTERS.items():
         gname = f"IL_Dataset_{cname}"
