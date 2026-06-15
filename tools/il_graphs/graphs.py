@@ -96,10 +96,11 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
     hprev = b.add("PreviewImage", [], pos=(-1400, -460), title="HERO preview (reroll Hero Seed to pick the face)")
     b.link(hdec, "IMAGE", hprev, "images")
 
-    # --- IPAdapter PLUS-FACE: pin the hero face (weight 0.6 leaves room for pose variety) ---
+    # --- IPAdapter PLUS-FACE: builds a hero-identity-locked model used ONLY by the face detailer
+    # below (NOT the base render — putting IPAdapter on the whole gen washes/softens it). ---
     ipl = b.add("IPAdapterUnifiedLoader", ["PLUS FACE (portraits)"], pos=(-1400, 60), title="IPAdapter loader")
-    ipa = b.add("IPAdapterAdvanced", [0.6, "ease in-out", "concat", 0, 1, "V only"],
-                pos=(-1400, 230), title="IPAdapter apply (face, 0.6)")
+    ipa = b.add("IPAdapterAdvanced", [0.7, "ease in-out", "concat", 0, 1, "V only"],
+                pos=(-1400, 230), title="IPAdapter apply (face lock, 0.7)")
     b.link(ck, "MODEL", ipl, "model")
     b.link(ipl, "model", ipa, "model"); b.link(ipl, "ipadapter", ipa, "ipadapter")
     b.link(hdec, "IMAGE", ipa, "image")
@@ -113,7 +114,8 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
                [wtext, populated, "populate", "Select the LoRA to add to the text",
                 "Select the Wildcard to add to the text", SEED, "randomize"],
                pos=(-1060, -100), title="Wildcard prompt (outfit/pose/angle/framing/expr)")
-    b.link(ipa, "MODEL", we, "model"); b.link(clip, "CLIP", we, "clip")
+    # base render uses the RAW checkpoint (clean, crisp); IPAdapter is applied only at the face pass.
+    b.link(ck, "MODEL", we, "model"); b.link(clip, "CLIP", we, "clip")
 
     # --- batched generation (varying seed) ---
     mlat = b.add("EmptyLatentImage", [1024, 1024, 4], pos=(-1060, 220), title="Batch latent 1024 x4")
@@ -125,12 +127,13 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
     mdec = b.add("VAEDecode", [], pos=(-400, -100), title="Gen decode")
     b.link(mks, "LATENT", mdec, "samples"); b.link(vae, "VAE", mdec, "vae")
 
-    # --- crisp faces for training (pose-NEUTRAL face cond, per the detailer rule) ---
+    # --- lock the hero face IN THE FACE CROP ONLY (clean base elsewhere), pose-NEUTRAL cond ---
     nface = b.add("CLIPTextEncode", [identity], pos=(-400, 220), title="Face detail (neutral identity)")
     b.link(clip, "CLIP", nface, "clip")
-    c = dict(msrc=(we, "model"), clip=clip, vae=vae,
+    c = dict(msrc=(we, "model"), clip=clip, vae=vae,   # msrc = raw checkpoint (base + hand stay clean)
              cpos=(we, "conditioning"), cneg=(neg, "CONDITIONING"), seed=gseed)
-    h = add_detailers(b, c, (mdec, "IMAGE"), x=-60, face_cond=(nface, "CONDITIONING"))
+    h = add_detailers(b, c, (mdec, "IMAGE"), x=-60, face_cond=(nface, "CONDITIONING"),
+                      face_model=(ipa, "MODEL"), face_denoise=0.4)   # face pass = IPAdapter hero lock
 
     note = b.add("Note", [
         f"DATASET TOOL for character '{name}' (one graph per CHARACTERS entry in config).\n"

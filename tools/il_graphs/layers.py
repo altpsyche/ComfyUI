@@ -145,15 +145,18 @@ def _fd(b, widgets_pos, title, denoise):
     return b.add("FaceDetailer", wv, pos=widgets_pos, title=title)
 
 
-def add_detailers(b, c, image_src, x=540, face_cond=None):
+def add_detailers(b, c, image_src, x=540, face_cond=None, face_model=None, face_denoise=0.3):
+    # face_model lets the FACE pass run on a different model than the base/hand (e.g. an IPAdapter
+    # identity-locked model) so the rest of the image keeps the clean base render. Defaults =
+    # c["msrc"] / 0.3 → identical to the plain tiers.
     fdet = b.add("UltralyticsDetectorProvider", ["bbox/face_yolov9c.pt"], pos=(x, 360), title="Face detector")
     hdet = b.add("UltralyticsDetectorProvider", ["bbox/hand_yolov9c.pt"], pos=(x, 500), title="Hand detector")
     sam = b.add("SAMLoader", ["sam2_hiera_large.pt", "AUTO"], pos=(x, 640), title="SAM2")
     hpos = b.add("CLIPTextEncode", [HAND_POS], pos=(x, 760), title="Hand positive")
-    face = _fd(b, (x + 320, -100), "Face Detailer", 0.3)
+    face = _fd(b, (x + 320, -100), "Face Detailer", face_denoise)
     hand = _fd(b, (x + 740, -100), "Hand Detailer", 0.3)
     fcond = face_cond or c["cpos"]   # neutral face prompt for multi-char; combined cond otherwise
-    b.link(image_src[0], image_src[1], face, "image"); b.link(*c["msrc"], face, "model")
+    b.link(image_src[0], image_src[1], face, "image"); b.link(*(face_model or c["msrc"]), face, "model")
     b.link(c["clip"], "CLIP", face, "clip"); b.link(c["vae"], "VAE", face, "vae")
     b.link(*fcond, face, "positive"); b.link(*c["cneg"], face, "negative")
     b.link(fdet, "BBOX_DETECTOR", face, "bbox_detector"); b.link(sam, "SAM_MODEL", face, "sam_model_opt")
