@@ -93,6 +93,8 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
     b.link(hseed, "int", hks, "seed")
     hdec = b.add("VAEDecode", [], pos=(-1400, -200), title="Hero decode")
     b.link(hks, "LATENT", hdec, "samples"); b.link(vae, "VAE", hdec, "vae")
+    hprev = b.add("PreviewImage", [], pos=(-1400, -460), title="HERO preview (reroll Hero Seed to pick the face)")
+    b.link(hdec, "IMAGE", hprev, "images")
 
     # --- IPAdapter PLUS-FACE: pin the hero face (weight 0.6 leaves room for pose variety) ---
     ipl = b.add("IPAdapterUnifiedLoader", ["PLUS FACE (portraits)"], pos=(-1400, 60), title="IPAdapter loader")
@@ -143,7 +145,7 @@ def build_dataset(name, identity, outfit, vary_outfit=False):
 
     add_finish(b, h, f"dataset/{name}", x=1100)
     b.group("Load + Seeds", [ck, vae, hseed, gseed, clip, neg], "#535")
-    b.group("Hero portrait (identity source)", [hpos, hlat, hks, hdec], "#525")
+    b.group("Hero portrait (identity source)", [hpos, hlat, hks, hdec, hprev], "#525")
     b.group("IPAdapter face lock", [ipl, ipa], "#525")
     b.group("Variation prompt", [we, mlat, note], "#355")
     b.group("Batched generation", [mks, mdec, nface], "#553")
