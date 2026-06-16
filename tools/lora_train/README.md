@@ -320,7 +320,7 @@ One command per character, or the whole roster:
 | `-Optimizer` | `prodigy` | `prodigy` \| `adamw` \| `adafactor` (see note below — **not** adamw8bit) |
 | `-DCoef` | 1.0 | Prodigy `d_coef`; lower (≈0.8) to reduce overcook on small sets |
 | `-Steps` | 1500 | TARGET total steps (drives repeats) |
-| `-Epochs` | 10 | epochs (saves one LoRA per epoch) |
+| `-Epochs` | 4 | saves one LoRA per epoch -> N checkpoints to pick from. Total steps stay ~= `-Steps` (repeats compensate), so this is checkpoint granularity, not training amount. |
 | `-Batch` | 2 | batch size (raise if you have VRAM headroom) |
 | `-TrainTextEncoder` | off | also train the text encoder (stronger, more VRAM) |
 | `-SkipCaption` | off | use existing captions, don't re-tag |

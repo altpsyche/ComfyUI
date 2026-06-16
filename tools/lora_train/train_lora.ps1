@@ -25,7 +25,7 @@ param(
     [ValidateSet('prodigy','adamw','adafactor')] [string]$Optimizer = 'prodigy',  # Blackwell-safe set; NOT adamw8bit (bitsandbytes on sm_120 is unverified)
     [double]$DCoef = 1.0,                     # Prodigy d_coef (try 0.8 to reduce overcook on small sets)
     [int]$Steps = 1500,                      # TARGET total steps; num_repeats is derived from it
-    [int]$Epochs = 10,
+    [int]$Epochs = 4,                        # saves 1 LoRA/epoch -> 4 checkpoints to pick from; total steps stays ~= -Steps
     [int]$Batch = 2,
     [int]$MinImages = 12,                    # refuse to train on too small a set
     [switch]$TrainTextEncoder,               # also train the TE (drops --network_train_unet_only)
