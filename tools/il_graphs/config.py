@@ -42,23 +42,28 @@ NOTE_C, NOTE_BG = "#432", "#322"
 #   prune   (optional) exact tags train_lora bakes into the trigger; "" = leave identity promptable.
 # Every entry also gets a roster.json line (name/trigger/prune) for the trainer.
 CHARACTERS = {
-    # Open IL_DatasetEdit_aria; reroll the Hero Seed to pick the face, then batch-queue the edit.
+    # Tennis player. Teal complements warm auburn hair; white flatters fair/freckled skin; nods to green eyes.
+    # Locked outfit: `prune` folds the garment tags into the trigger so it always renders the same kit.
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",
-        "prune": "",
+        "outfit": "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes",
+        "prune": "tennis uniform, tennis dress, dress, visor, wristband, shoes",
     },
-    # Minimal entry: identity only (no outfit); trigger defaults to kaelchar.
+    # Basketball player. Orange is the complement of blue eyes (pops) and vivid against black hair.
     "kael": {
         "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
-        "prune": "",
+        "outfit": "basketball uniform, orange and white basketball jersey, orange basketball shorts, white headband, basketball shoes",
+        "prune": "basketball uniform, basketball, jersey, shorts, headband, shoes",
     },
-    # Demonstrates the optional `outfit` field (worn by the Stage-1 hero).
+    # Superhero. Deep violet echoes the eyes, silver echoes the hair, both striking on pale skin.
     "nyx": {
         "id": "1girl, solo, (silver bob hair:1.1), (violet eyes:1.1)",
-        "outfit": "casual hoodie, jeans",
-        "prune": "",
+        "outfit": "superhero costume, deep violet bodysuit, silver accents, silver belt, knee boots, purple cape",
+        "prune": "superhero, bodysuit, cape, belt, boots, gloves",
     },
 }
-# Suffix that turns the identity tags into a clean Stage-1 hero portrait (the edit's identity anchor).
-REF_SUFFIX = (", upper body, plain grey background, simple background, looking at viewer, "
-              "neutral expression, character portrait")
+# Suffix that turns the identity tags into a clean FULL-BODY Stage-1 hero (the edit's identity AND outfit
+# anchor) -- full body so the whole signature outfit is captured for Qwen to propagate; if a character
+# has no lower-body outfit to lock you can shorten this to a portrait for a larger face in the preview.
+REF_SUFFIX = (", full body, standing, plain grey background, simple background, looking at viewer, "
+              "neutral expression")
