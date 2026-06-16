@@ -7,13 +7,6 @@ PROMPT_INFO = {
   "Negative": ("base generation, the upscaler, and every detailer", NEG),
   "Hand positive": ("the hand detailer only (re-renders hands)", HAND_POS),
   "Face positive": ("the native-1024 face-inpaint pass only", FACE_POS),
-  "Hero portrait prompt": ("the fixed-seed hero portrait that becomes the IPAdapter face source — "
-     "set this character's id/outfit in the CHARACTERS roster (config.py)",
-     "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles, cream knit sweater, "
-     "blue jeans, upper body, plain grey background, character portrait"),
-  "Face detail (neutral identity)": ("the face detailer — neutral (no pose/gaze tags) so the "
-     "re-rolled face crop doesn't fight the body's pose",
-     "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"),
 }
 
 
@@ -61,23 +54,6 @@ DOCS = {
     "Quick composition / prompt checks (~4x faster, lower quality). Switch to a full tier for finals.",
     ["Edit prompts. Queue."],
     ["KSampler: lcm / sgm_uniform / 8 steps / cfg 1.5. lcm-lora ON in the loader."]),
-  "IL_Dataset": ("Synthetic training-data generator — one IL_Dataset_<name> graph per CHARACTERS "
-    "roster entry. Identity consistency comes from one of two modes: a roster **base** danbooru "
-    "character tag (text-only — the tag carries the face, IPAdapter OFF), or — when base is empty — "
-    "a fixed-seed hero portrait feeding a light IPAdapter PLUS-FACE on the face pass only. Either "
-    "way an Impact wildcard prompt varies (outfit)/pose/angle/framing/expression and the Gen Seed "
-    "re-rolls. No external image loads.",
-    "Step 1 of training a character-consistency LoRA: generate a varied, on-model image set per character.",
-    ["Add/edit characters in the CHARACTERS roster (tools/il_graphs/config.py), then regenerate.",
-     "Open IL_Dataset_<name>. base set = no hero step. base empty = Hero Seed FIXED; pick a hero portrait (it becomes the locked face).",
-     "Reroll the Gen Seed (batch of 4) to fill output/dataset/<name>/ with ~60 varied shots.",
-     "Curate the on-model ~30 in place, then: train_lora.ps1 -Char <name>  (or train_all.ps1 for the whole roster).",
-     "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
-    ["base (roster) = a known danbooru character tag → pure-text path, IPAdapter auto-OFF, consistent-by-tag; leave empty for the hero+IPAdapter original-face route.",
-     "IPAdapter PLUS-FACE weight 0.55 V-only (base-empty mode only) — holds the face while pose prompts still move the body.",
-     "Wildcards live in custom_nodes/ComfyUI-Impact-Pack/wildcards/ (outfit / pose / angle / framing / expression .txt).",
-     "Outfit: signature (fixed) by default; set vary_outfit=True in the roster for a swappable-outfit LoRA.",
-     "Face detailer uses a pose-NEUTRAL identity prompt so re-rolled crops don't fight the body pose."]),
   "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF) -- SELF-CONTAINED, two "
     "stages. STAGE 1 renders ONE hero from this character's id tags in your Illustrious checkpoint "
     "(fixed Hero Seed + HERO preview). STAGE 2 re-poses that hero into many varied shots holding "
@@ -92,8 +68,11 @@ DOCS = {
      "Lightning 4-step LoRA -> edit KSampler 6 steps / cfg 1.0 / euler / simple (fast; makes Q5 practical on 16 GB).",
      "Multiple-angles LoRA (strength ~0.8) drives camera-angle variety; lower it if identity drifts.",
      "Reference-latent-method nodes are kept ON (needed for the repackaged GGUF build).",
+     "Edit instruction node is mode='fixed' on purpose: the wildcards expand in the node BACKEND every "
+     "run (keyed on the seed), so variety works headless too -- not just from the browser populate step.",
      "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",
-     "Wildcards (__angle__/__pose__/__expression__) live in custom_nodes/ComfyUI-Impact-Pack/wildcards/.",
+     "Wildcards (__framing__/__angle__/__pose__/__expression__/__background__/__lighting__) live in "
+     "custom_nodes/ComfyUI-Impact-Pack/wildcards/.",
      "Full guide (setup, anatomy, instruction system, tuning, troubleshooting): tools/lora_train/README.md section 6g."]),
 }
 
@@ -101,8 +80,6 @@ DOCS = {
 def md(name, g):
     if name.startswith("IL_DatasetEdit"):
         key = "IL_DatasetEdit"      # shared doc for every IL_DatasetEdit_<char>
-    elif name.startswith("IL_Dataset"):
-        key = "IL_Dataset"          # shared doc for every IL_Dataset_<char>
     else:
         key = name
     summary, when, steps, knobs = DOCS[key]

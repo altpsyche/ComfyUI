@@ -4,7 +4,7 @@
   Train ONE character LoRA with kohya sd-scripts. Portable + parameterized + auto-captioning.
 
 .DESCRIPTION
-  Convention: images live in <repo>/output/dataset/<Char>/ (IL_Dataset saves there directly).
+  Convention: images live in <repo>/output/dataset/<Char>/ (the IL_DatasetEdit_<Char> graph saves there directly).
   This script validates the folder, auto-captions it (WD14 tagger + prep_captions) if no .txt
   captions exist, derives num_repeats from a target step count, writes the dataset .toml, and
   launches training. No per-character file copies, no hardcoded paths, no manual file moving.
@@ -62,7 +62,7 @@ function Die($msg) { Write-Host "[x] $msg" -ForegroundColor Red; exit 1 }
 # --- pre-flight ---
 if (-not (Test-Path $py))   { Die "trainer venv missing. Run: setup.bat --with-trainer" }
 if (-not (Test-Path $Base)) { Die "checkpoint not found: $Base  (pass -Base <path>)" }
-if (-not (Test-Path $data)) { Die "no dataset at $data  -- generate with IL_Dataset (SaveImage prefix 'dataset/$Char')" }
+if (-not (Test-Path $data)) { Die "no dataset at $data  -- generate with IL_DatasetEdit (SaveImage prefix 'dataset/$Char')" }
 $imgs = @(Get-ChildItem $data -File | Where-Object { $_.Extension -in '.png','.jpg','.jpeg','.webp' })
 if ($imgs.Count -lt $MinImages) { Die "only $($imgs.Count) images in $data (need >= $MinImages). Generate/curate more." }
 Write-Host "[+] $($imgs.Count) images in output/dataset/$Char"

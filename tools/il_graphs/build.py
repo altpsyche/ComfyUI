@@ -7,7 +7,7 @@ import json
 from .config import OUT, ROOT, CHARACTERS
 from .docs import md
 from .graphs import (build_base, build_refine, build_guided, build_studio,
-                     build_max, build_ipadapter, build_pose, build_lcm, build_dataset,
+                     build_max, build_ipadapter, build_pose, build_lcm,
                      build_dataset_edit)
 
 
@@ -30,13 +30,9 @@ def main():
     # no CLIPSetLastLayer, no CFGGuider; KSampler cfg 1.0 is intended for Lightning).
     edit_req = ["CheckpointLoaderSimple", "UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
                 "FluxKontextMultiReferenceLatentMethod", "KSampler", "VAEDecode", "SaveImage"]
-    # base-tagged (text-only) hero graph has no IPAdapter, so it drops IPAdapterAdvanced.
-    ds_base = base_req + ["ImpactWildcardEncode", "FaceDetailer"]
 
-    # roster.json (name/trigger/prune) is the trainer's source of truth -- written for EVERY character
-    # regardless of which dataset workflow makes the images. Each character gets the recommended
-    # IL_DatasetEdit_<name> (Qwen-Image-Edit); the OLD IL_Dataset_<name> is emitted only when the
-    # entry sets hero_graph=True (the hero+IPAdapter / base-danbooru route).
+    # roster.json (name/trigger/prune) is the trainer's source of truth. Each character gets exactly one
+    # dataset workflow: the self-contained Qwen-Image-Edit graph IL_DatasetEdit_<name>.
     roster = []
     for cname, spec in CHARACTERS.items():
         roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",
@@ -44,11 +40,6 @@ def main():
         egname = f"IL_DatasetEdit_{cname}"
         graphs[egname] = build_dataset_edit(cname, spec["id"], spec.get("outfit", ""))
         req[egname] = edit_req
-        if spec.get("hero_graph"):
-            gname = f"IL_Dataset_{cname}"
-            graphs[gname] = build_dataset(cname, spec["id"], spec["outfit"],
-                                          spec.get("vary_outfit", False), spec.get("base", ""))
-            req[gname] = ds_base + ([] if spec.get("base", "").strip() else ["IPAdapterAdvanced"])
     (ROOT / "tools/lora_train/roster.json").write_text(json.dumps(roster, indent=2), encoding="utf-8")
 
     for name, g in graphs.items():
@@ -62,8 +53,9 @@ def main():
         (OUT / f"{name}.md").write_text(md(name, g), encoding="utf-8")
         print(f"wrote {name}.json: {len(g['nodes'])} nodes, {len(g['links'])} links  (+ rules.toml + md)")
 
-    # Prune stale dataset-family workflows (character removed/renamed, or a route toggled off) so the
-    # ComfyUI list doesn't keep orphans. Scoped to the build-managed IL_Dataset* family only.
+    # Prune stale dataset-family workflows (character removed/renamed, plus any legacy IL_Dataset_<name>
+    # from the retired hero+IPAdapter route) so the ComfyUI list doesn't keep orphans. The IL_Dataset*
+    # glob keeps the live IL_DatasetEdit_* (they're in `graphs`) and drops everything else it matches.
     removed = []
     for jf in OUT.glob("IL_Dataset*.json"):
         if jf.stem not in graphs:

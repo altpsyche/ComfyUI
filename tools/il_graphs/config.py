@@ -30,43 +30,35 @@ HAND_POS = "detailed hand, perfect hand anatomy, five fingers, correct number of
 FACE_POS = "detailed face, beautiful detailed eyes, symmetrical eyes, sharp focus, detailed skin texture, natural lips"
 NOTE_C, NOTE_BG = "#432", "#322"
 
-# IL_Dataset ROSTER — one entry per character you want to train. build_il_graphs.py emits an
-# IL_Dataset_<name> workflow per entry (open it in ComfyUI, generate -> output/dataset/<name>/),
-# and train_lora.ps1 -Char <name> / train_all.ps1 train them. No per-character file editing.
-#   id           identity tags only (face/hair/eyes/body) — what the LoRA bakes into the trigger.
-#   outfit       clothes, kept separate from identity.
-#   vary_outfit  True -> __outfit__ wildcard (swappable-outfit LoRA); False -> fixed signature outfit.
-#   prune        (optional) exact tags train_lora bakes into the trigger; "" = leave identity promptable.
-#   base         (optional) known danbooru character tag prepended to the prompt. When set, the tag
-#                carries a consistent face, so the hero+IPAdapter scaffold is auto-OFF (pure-text path).
-#                Paste the tag RAW (parens and all, e.g. "ganyu (genshin impact)") — build_dataset
-#                escapes the parens so CLIP doesn't read them as prompt weights. "" (default) =
-#                original face via the in-graph hero + light IPAdapter. (OLD route only.)
-#   hero_graph   (optional) True also emits the OLD IL_Dataset_<name> (hero+IPAdapter / base) graph.
-#                Default False: only the recommended IL_DatasetEdit_<name> (Qwen-Image-Edit) is emitted.
-# Every entry always gets a roster.json line (name/trigger/prune) for the trainer, regardless of route.
+# IL_DatasetEdit ROSTER — one entry per character you want to train. build_il_graphs.py emits an
+# IL_DatasetEdit_<name> (Qwen-Image-Edit, self-contained two-stage) workflow per entry: open it in
+# ComfyUI, generate -> output/dataset/<name>/, then train_lora.ps1 -Char <name> / train_all.ps1.
+# No per-character file editing.
+#   id      identity tags only (face/hair/eyes/body). This is the STAGE-1 hero prompt (rendered in
+#           your checkpoint, then re-posed by Qwen-Edit). Weight the face-defining tags, e.g.
+#           "(green eyes:1.1)". No outfit here.
+#   outfit  (optional) signature clothes, kept separate from identity; appended to the Stage-1 hero
+#           prompt so the hero wears them. Leave "" to let the checkpoint pick.
+#   prune   (optional) exact tags train_lora bakes into the trigger; "" = leave identity promptable.
+# Every entry also gets a roster.json line (name/trigger/prune) for the trainer.
 CHARACTERS = {
-    # DEFAULT route: Qwen-Image-Edit. Open IL_DatasetEdit_aria; reroll Hero Seed to pick the face.
+    # Open IL_DatasetEdit_aria; reroll the Hero Seed to pick the face, then batch-queue the edit.
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",
         "prune": "",
     },
-    # Minimal entry: identity only; trigger defaults to kaelchar.
+    # Minimal entry: identity only (no outfit); trigger defaults to kaelchar.
     "kael": {
         "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
         "prune": "",
     },
-    # OLD hero+IPAdapter route too (hero_graph=True) + the danbooru base path (base-only, IPAdapter OFF).
-    # Swap "base" to ANY Danbooru-2024 character your checkpoint renders reliably before generating.
+    # Demonstrates the optional `outfit` field (worn by the Stage-1 hero).
     "nyx": {
-        "id": "1girl, solo",                  # keep id minimal; the base tag supplies the face
+        "id": "1girl, solo, (silver bob hair:1.1), (violet eyes:1.1)",
         "outfit": "casual hoodie, jeans",
-        "vary_outfit": False,
         "prune": "",
-        "hero_graph": True,
-        "base": "ganyu (genshin impact)",
     },
 }
-# Suffix that turns the identity tags into a clean hero portrait (the IPAdapter face source).
+# Suffix that turns the identity tags into a clean Stage-1 hero portrait (the edit's identity anchor).
 REF_SUFFIX = (", upper body, plain grey background, simple background, looking at viewer, "
               "neutral expression, character portrait")
