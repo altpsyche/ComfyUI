@@ -123,20 +123,20 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
     b.link(hdec, "IMAGE", scale, "image")   # the Stage-1 hero feeds the edit
 
     # ===== instruction + encode (wildcards vary framing/angle/pose/expr/background/lighting) =====
-    # CRITICAL (variety fix): the ImpactWildcardProcessor BACKEND only expands wildcards found in
-    # populated_text (doit() -> process(populated_text, seed)); the "populate" copy of wildcard_text
-    # -> populated_text is a browser-JS step that NEVER runs headless (API POST) and may fire only
-    # once per Queue in the UI. So we put the SAME wildcard string in BOTH boxes and set mode "fixed":
-    # the backend then re-rolls a fresh instruction every execution, keyed on the seed (which
-    # control_after_generate=randomize advances per batch item in the UI / per POST via the runner).
-    # Phrasing leads with the imperative CHANGE because Qwen-Image-Edit is conservative; the identity
-    # + style lock is a concise trailing clause so it doesn't drown the edit verbs.
+    # mode "populate": in the ComfyUI UI the frontend re-expands wildcard_text into the populated_text
+    # box on every queue, so you SEE the resolved prompt and it re-rolls each run. populated_text is
+    # seeded with the SAME wildcard string (NOT a concrete roll) so a headless API POST -- which has no
+    # frontend -- still expands the wildcards in the node BACKEND (doit() -> process(populated_text,
+    # seed)) keyed on the seed. (The earlier sameness bug was a concrete, wildcard-free populated_text
+    # default: headless was then stuck on one prompt. The real driver of varied IMAGES, though, is the
+    # instruction below + the multiple-angles LoRA -- Qwen-Image-Edit is conservative, so we lead with
+    # the imperative CHANGE and keep the identity/style lock as a short trailing clause.)
     wtext = ("Change the shot to __framing__ from __angle__. Re-pose the character to __pose__, __expression__. "
              "Set the scene: __background__, __lighting__. "
              "Keep the exact same character (identical face, hairstyle and outfit) and the same anime art style.")
     wild = b.add("ImpactWildcardProcessor",
-                 [wtext, wtext, "fixed", SEED, "randomize", "Select the Wildcard to add to the text"],
-                 pos=(2120, 0), title="Edit instruction (re-rolls every run)")
+                 [wtext, wtext, "populate", SEED, "randomize", "Select the Wildcard to add to the text"],
+                 pos=(2120, 0), title="Edit instruction (reroll = variety)")
     posenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(2120, 220), title="Encode (positive: hero + instruction)")
     negenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(2120, 470), title="Encode (negative: empty)")
     for enc in (posenc, negenc):
@@ -163,11 +163,12 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
         "from this character's id tags in YOUR checkpoint). Then leave Hero Seed fixed on that value.\n"
         "STAGE 2: leave 'Edit instruction' seed control = randomize; set batch count ~40 + Queue once\n"
         "  -> output/dataset/" + name + "/. Each frame = that hero in a new framing/angle/pose/expression/\n"
-        "  background/lighting, same identity + art style. (mode is 'fixed' on purpose: the wildcards\n"
-        "  expand in the node backend every run, keyed on the seed -- so it varies headless too.)\n"
+        "  background/lighting, same identity + art style. (mode 'populate': the bottom box shows the\n"
+        "  resolved prompt and re-rolls each queue; it also still expands headless via the backend.)\n"
         "Then curate the best 25-40 and run: tools/lora_train/train_lora.ps1 -Char " + name + ".\n"
         "Wildcards (__framing__/__angle__/__pose__/__expression__/__background__/__lighting__) live in\n"
-        "  ComfyUI-Impact-Pack/wildcards/. Too slow / OOM? re-run install_qwen_edit.ps1 -Quant Q4_K_M.\n"
+        "  ComfyUI-Impact-Pack/wildcards/. SLOW on 16 GB is expected: a changing prompt reloads the Qwen\n"
+        "  text encoder + swaps it with the diffusion model each frame (the cost of real variety).\n"
         "Identity drifting? lower the multiple-angles LoRA strength or trim the instruction's scene clause."],
         pos=(2120, 700), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
 

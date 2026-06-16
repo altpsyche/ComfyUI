@@ -68,8 +68,11 @@ DOCS = {
      "Lightning 4-step LoRA -> edit KSampler 6 steps / cfg 1.0 / euler / simple (fast; makes Q5 practical on 16 GB).",
      "Multiple-angles LoRA (strength ~0.8) drives camera-angle variety; lower it if identity drifts.",
      "Reference-latent-method nodes are kept ON (needed for the repackaged GGUF build).",
-     "Edit instruction node is mode='fixed' on purpose: the wildcards expand in the node BACKEND every "
-     "run (keyed on the seed), so variety works headless too -- not just from the browser populate step.",
+     "Edit instruction node is mode='populate': the UI shows the resolved prompt and re-rolls each "
+     "queue; populated_text holds the wildcards too, so a headless API POST still expands them in the "
+     "node backend (keyed on the seed).",
+     "SLOW on 16 GB is expected: a changing prompt reloads the 9 GB Qwen text encoder and swaps it with "
+     "the 15 GB diffusion model each frame. A static prompt caches the encode (fast) but kills variety.",
      "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",
      "Wildcards (__framing__/__angle__/__pose__/__expression__/__background__/__lighting__) live in "
      "custom_nodes/ComfyUI-Impact-Pack/wildcards/.",
