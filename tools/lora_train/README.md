@@ -223,7 +223,7 @@ pre-wired.
 | Group | Does |
 |---|---|
 | **STAGE 1 — Hero generator (Illustrious)** | `CheckpointLoaderSimple` + `CLIPSetLastLayer −2` + the character's `id` prompt + `KSampler` (euler_a/normal/30/cfg5, fixed **Hero Seed**) → `VAEDecode` → **HERO preview**. Renders the single hero in your style — no input image needed. |
-| **STAGE 2 — Qwen-Edit model + LoRAs** | `UnetLoaderGGUF` (Q5) → `LoraLoaderModelOnly` ×2 (Lightning 1.0, multiple-angles 1.0) → `ModelSamplingAuraFlow` (shift 3.1) → `CFGNorm` (1.0). The exact model-patch chain the official 2511 template uses. |
+| **STAGE 2 — Qwen-Edit model + LoRAs** | `UnetLoaderGGUF` (Q5) → `LoraLoaderModelOnly` ×2 (Lightning 1.0, multiple-angles 0.8) → `ModelSamplingAuraFlow` (shift 3.1) → `CFGNorm` (1.0). The exact model-patch chain the official 2511 template uses. |
 | **Encoders + scale** | `CLIPLoader` (qwen2.5-vl-7b, type `qwen_image`), `VAELoader` (qwen_image_vae), `FluxKontextImageScale` (scales the hero to the model's pixel budget — fed by Stage 1). |
 | **Instruction + encode** | **`Edit instruction`** (`ImpactWildcardProcessor`, **mode `populate`** — see [§6.4](#64-the-edit-instruction-driving-variety)) → `TextEncodeQwenImageEditPlus` (positive: scaled hero + instruction) and a second one (negative: empty). Each conditioning passes a `FluxKontextMultiReferenceLatentMethod` node (kept ON — required for the repackaged GGUF build). `VAEEncode` turns the scaled hero into the init latent. |
 | **Edit + decode** | `KSampler` (Lightning: **6 steps / cfg 1.0 / euler / simple / denoise 1.0**) → `VAEDecode`. |
@@ -249,36 +249,38 @@ pre-wired.
 
 The positive prompt is produced by **`ImpactWildcardProcessor`**, whose text ships as:
 ```
-Change the shot to __framing__ from __angle__. Re-pose the character to __pose__, __expression__.
-Set the scene: __background__, __lighting__. Keep the exact same character (identical face,
-hairstyle and outfit) and the same anime art style.
+same character, identical face and hair and outfit, keep the same art style,
+__angle__, __pose__, __expression__, __framing__, __background__, __lighting__
 ```
-- **Lead with the change (this is the real variety lever).** Qwen-Image-Edit is conservative: it
-  changes only what the instruction asks, and a mild prompt produces near-identical frames *even when
-  the wildcard rolled a new value*. Leading with the imperative edit verbs ("Change the shot … Re-pose
-  …") + the **multiple-angles LoRA at 1.0** is what actually makes the camera/pose move; the identity +
-  style lock is a concise trailing clause so it doesn't drown the edit.
+- **Keep `__angle__/__pose__` leading.** A "lead with the imperative change" rewrite
+  (`Change the shot to __framing__ … Re-pose to __pose__ …`) was tried and **reverted**: putting
+  `__framing__` and the scene first made Qwen — conservative at 6 steps — spend its edit budget on the
+  easy global changes (zoom/background/lighting) and move the **pose** much less. The identity-preamble
+  comma-list above, with angle/pose first, gives noticeably more pose variety. Append new axes after
+  pose; don't reorder pose behind them.
 - **`mode: populate` + wildcards in `populated_text`.** In the UI, `populate` re-expands `wildcard_text`
   into the (bottom, read-only) `populated_text` box on every queue, so you **see the resolved prompt**
   and it re-rolls. The generator also seeds `populated_text` with the wildcard string itself (not a
   concrete roll), so a **headless API POST** — which has no frontend to populate — still expands the
   wildcards in the node backend (`doit()` → `process(populated_text, seed)`), keyed on the seed. (The
-  earlier sameness on headless runs came from a *concrete, wildcard-free* `populated_text` default that
+  earlier sameness on *headless* runs came from a *concrete, wildcard-free* `populated_text` default that
   left the API stuck on one prompt; in the UI the roll was always working.)
-- `__framing__/__angle__/__pose__/__expression__/__background__/__lighting__` are Impact-Pack
+- `__angle__/__pose__/__expression__/__framing__/__background__/__lighting__` are Impact-Pack
   wildcards (one random line each per roll, from `custom_nodes/ComfyUI-Impact-Pack/wildcards/*.txt`).
   Edit those `.txt` files to steer the kind of variety you want (add `from below`, `dutch angle`, etc.).
+- The **multiple-angles LoRA** (strength **0.8**) reinforces camera-angle changes; raise toward 1.0 for
+  more angle push, lower if identity drifts.
 
 ### 6.5 Tuning dials (live in the graph)
 
 | Symptom | Dial |
 |---|---|
-| Identity drifts across frames | lower **multiple-angles LoRA** strength (1.0 → 0.6); trim the scene clause (`__background__/__lighting__`); use a cleaner hero |
-| Too little variety / poses all similar | confirm the Edit-instruction seed control = randomize; add options to `angle.txt`/`pose.txt`/`framing.txt`; keep the multiple-angles LoRA at 1.0 |
+| Poses too similar | confirm the seed control = randomize and the bottom box re-rolls; keep `__angle__/__pose__` leading the instruction (don't move them behind framing/scene); raise the **multiple-angles LoRA** (0.8 → 1.0); add lines to `pose.txt`/`angle.txt` |
+| Identity drifts across frames | lower **multiple-angles LoRA** strength (0.8 → 0.6); trim the scene axes (`__background__/__lighting__`); use a cleaner hero |
 | Soft / low-detail output | raise **KSampler steps** (6 → 8–10) — still with the Lightning LoRA; cfg can stay 1.0 |
 | Style drifts from your checkpoint | ensure the hero was rendered in your checkpoint; optionally add an IL img2img re-skin (denoise 0.25–0.35) after |
-| Slow per frame on 16 GB (expected) | A changing prompt reloads the 9 GB Qwen text encoder and swaps it with the 15 GB diffusion model every frame — the 16 GB card can't hold both. This is the cost of real variety; a static prompt would cache the encode (fast) but defeat the point. Mitigate with `-Quant Q4_K_M`, closing other GPU apps, or just leaving the batch to run. |
-| Output too zoomed/cropped | the ref is auto-scaled by `FluxKontextImageScale`; the instruction already leads with `__framing__` — add framing words to `framing.txt` |
+| Too slow per frame | per-frame compute is fixed by KSampler steps (6) + the model stack — the instruction/wildcards add none. If it slowed down, suspect a cold reload of the 24 GB stack after regenerate, other GPU apps, or VRAM pressure (encoder offload). Time it across a few frames; use `-Quant Q4_K_M` if the encoder swap is the bottleneck. |
+| Output too zoomed/cropped | the ref is auto-scaled by `FluxKontextImageScale`; add framing words to `framing.txt` |
 
 If you settle on better defaults (LoRA strengths, steps, instruction), bake them into
 `build_dataset_edit()` in `tools/il_graphs/graphs.py` so regenerations keep them.
@@ -391,8 +393,8 @@ the model's style.
 |---|---|
 | Node/changes not showing in ComfyUI | A loaded graph is cached — **re-open** the workflow after regenerating. |
 | Images for all characters in one folder | Old prefix bug; ensure SaveImage prefix is `dataset/<name>/<name>` (regenerate). |
-| Every frame is the same pose/angle | First the *prompt* must roll (Edit-instruction `mode: populate`, seed control = randomize — the bottom box should change each queue). If the prompt rolls but the *image* doesn't follow, that's Qwen being conservative: lead the instruction with the change and raise the multiple-angles LoRA (→1.0). Headless API POSTs need the seed-randomizing runner (`convert_and_run.py`); a raw POST keeps the saved seed. |
-| Generation got slower after adding variety | Expected on 16 GB — see the slow-per-frame row in [§6.5](#65-tuning-dials-live-in-the-graph). A varying prompt reloads the text encoder + swaps models each frame; the old "fast" was a static prompt caching the encode. |
+| Every frame is the same pose/angle | First the *prompt* must roll (Edit-instruction `mode: populate`, seed control = randomize — the bottom box should change each queue). If the prompt rolls but the *image* doesn't follow, that's Qwen being conservative: keep `__angle__/__pose__` leading the instruction (a framing-first phrasing buries them) and raise the multiple-angles LoRA toward 1.0. Headless API POSTs need the seed-randomizing runner (`convert_and_run.py`); a raw POST keeps the saved seed. |
+| Generation feels slower | Per-frame compute is set by KSampler steps (6) + the model stack — the instruction/wildcards add none, so a real slowdown is environmental: a cold 24 GB reload after regenerate, other GPU apps, or VRAM pressure (the 9 GB encoder offloads to RAM). Time a few frames; `-Quant Q4_K_M` if the encoder swap dominates. |
 | `__pose__` etc. appear literally in the image | Wildcard file missing or wrong path; files go in `custom_nodes/ComfyUI-Impact-Pack/wildcards/`; reload graph. |
 | `train_lora.ps1` "no dataset" | Generate to `output/dataset/<Char>/` first (SaveImage prefix `dataset/<Char>`). |
 | "only N images (need ≥12)" | Generate/curate more, or lower `-MinImages`. |
@@ -441,7 +443,7 @@ Key defaults — **training**: LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
 **Stage-1 hero**: checkpoint `oneObsession_v19Atypical` · VAE `sdxl_vae_f16_fix` · CLIP skip −2 ·
 CFG 5 · sampler `euler_ancestral`/`normal`/30 · 832×1216 · seed `1234567890`.
 **Qwen-Edit (Stage 2)**: GGUF Q5 · Lightning **6 steps / cfg 1.0 / euler / simple** ·
-ModelSamplingAuraFlow shift 3.1 · CFGNorm 1.0 · multiple-angles LoRA 1.0 · reference method `index_timestep_zero`.
+ModelSamplingAuraFlow shift 3.1 · CFGNorm 1.0 · multiple-angles LoRA 0.8 · reference method `index_timestep_zero`.
 
 ## 13. Why it's built this way
 
@@ -455,11 +457,11 @@ ModelSamplingAuraFlow shift 3.1 · CFGNorm 1.0 · multiple-angles LoRA 1.0 · re
 - **Wildcards in `populated_text`, mode `populate`.** `populate` lets the UI show the resolved prompt
   and re-roll each queue; seeding `populated_text` with the wildcard string (not a concrete roll) means
   a headless API POST still expands in the node backend. The early headless sameness was a concrete,
-  wildcard-free default — not the populate mode itself. The varied *images* come from leading the
-  instruction with the change + the multiple-angles LoRA, since Qwen-Edit is otherwise conservative.
-- **Variety costs speed on 16 GB.** A changing prompt reloads the 9 GB text encoder and swaps it with
-  the 15 GB diffusion model every frame (both can't be resident). A static prompt caches the encode and
-  runs much faster — but produces the same image. The slowdown is the price of a real dataset, not a bug.
+  wildcard-free default — not the populate mode itself; in the UI the roll always worked.
+- **Instruction keeps angle/pose first.** Qwen-Edit is conservative, so prompt *order* matters: a
+  framing/scene-first phrasing makes it spend its 6-step budget on zoom/background and barely move the
+  pose. The identity-preamble comma-list with `__angle__/__pose__` leading gives the most pose variety;
+  the multiple-angles LoRA (0.8) reinforces camera changes. New scene axes are appended, not prepended.
 - **GGUF + Lightning for 16 GB.** The 20B edit model only fits a 16 GB card quantized (GGUF Q5); the
   4-step Lightning LoRA (run at 6 steps, cfg 1.0) keeps generation fast despite the text encoder
   offloading to RAM. This is why the edit route is practical on consumer hardware at all.

@@ -110,7 +110,7 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
     # ===== STAGE 2 model — GGUF + Lightning(+angles) LoRA -> flow-shift + CFGNorm (2511 patch chain) =====
     gguf = b.add("UnetLoaderGGUF", [QE_GGUF], pos=(1180, 0), title="Qwen-Edit GGUF (Q5)")
     llora = b.add("LoraLoaderModelOnly", [QE_LIGHTNING, 1.0], pos=(1180, 150), title="Lightning 4-step LoRA")
-    alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, 1.0], pos=(1180, 300), title="Multiple-angles LoRA")
+    alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, 0.8], pos=(1180, 300), title="Multiple-angles LoRA")
     msaf = b.add("ModelSamplingAuraFlow", [3.1], pos=(1180, 450), title="ModelSampling (shift 3.1)")
     cfgn = b.add("CFGNorm", [1.0], pos=(1180, 600), title="CFGNorm")
     b.link(gguf, "MODEL", llora, "model"); b.link(llora, "MODEL", alora, "model")
@@ -122,18 +122,17 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
     scale = b.add("FluxKontextImageScale", [], pos=(1620, 340), title="Scale ref (hero -> edit)")
     b.link(hdec, "IMAGE", scale, "image")   # the Stage-1 hero feeds the edit
 
-    # ===== instruction + encode (wildcards vary framing/angle/pose/expr/background/lighting) =====
-    # mode "populate": in the ComfyUI UI the frontend re-expands wildcard_text into the populated_text
-    # box on every queue, so you SEE the resolved prompt and it re-rolls each run. populated_text is
-    # seeded with the SAME wildcard string (NOT a concrete roll) so a headless API POST -- which has no
-    # frontend -- still expands the wildcards in the node BACKEND (doit() -> process(populated_text,
-    # seed)) keyed on the seed. (The earlier sameness bug was a concrete, wildcard-free populated_text
-    # default: headless was then stuck on one prompt. The real driver of varied IMAGES, though, is the
-    # instruction below + the multiple-angles LoRA -- Qwen-Image-Edit is conservative, so we lead with
-    # the imperative CHANGE and keep the identity/style lock as a short trailing clause.)
-    wtext = ("Change the shot to __framing__ from __angle__. Re-pose the character to __pose__, __expression__. "
-             "Set the scene: __background__, __lighting__. "
-             "Keep the exact same character (identical face, hairstyle and outfit) and the same anime art style.")
+    # ===== instruction + encode (wildcards vary angle/pose/expr + new framing/background/lighting) =====
+    # Keep the identity-preamble comma-list that empirically gave good POSE/ANGLE variety, and just
+    # APPEND the new framing/background/lighting axes. (A "lead with the imperative change" rewrite was
+    # tried and REVERTED: leading with framing buried __pose__/__angle__ behind the easy global edits,
+    # so Qwen -- conservative at 6 steps -- moved the pose less. Don't reorder pose behind framing/scene.)
+    # mode "populate": the UI re-expands wildcard_text into the populated_text box each queue, so you SEE
+    # the resolved prompt and it re-rolls. populated_text also holds the wildcard string (not a concrete
+    # roll) so a headless API POST -- no frontend -- still expands them in the node BACKEND
+    # (process(populated_text, seed)); that is the only headless-correctness change kept from the rewrite.
+    wtext = ("same character, identical face and hair and outfit, keep the same art style, "
+             "__angle__, __pose__, __expression__, __framing__, __background__, __lighting__")
     wild = b.add("ImpactWildcardProcessor",
                  [wtext, wtext, "populate", SEED, "randomize", "Select the Wildcard to add to the text"],
                  pos=(2120, 0), title="Edit instruction (reroll = variety)")
@@ -166,10 +165,10 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
         "  background/lighting, same identity + art style. (mode 'populate': the bottom box shows the\n"
         "  resolved prompt and re-rolls each queue; it also still expands headless via the backend.)\n"
         "Then curate the best 25-40 and run: tools/lora_train/train_lora.ps1 -Char " + name + ".\n"
-        "Wildcards (__framing__/__angle__/__pose__/__expression__/__background__/__lighting__) live in\n"
-        "  ComfyUI-Impact-Pack/wildcards/. SLOW on 16 GB is expected: a changing prompt reloads the Qwen\n"
-        "  text encoder + swaps it with the diffusion model each frame (the cost of real variety).\n"
-        "Identity drifting? lower the multiple-angles LoRA strength or trim the instruction's scene clause."],
+        "Wildcards (__angle__/__pose__/__expression__/__framing__/__background__/__lighting__) live in\n"
+        "  ComfyUI-Impact-Pack/wildcards/. Too slow / OOM? re-run install_qwen_edit.ps1 -Quant Q4_K_M.\n"
+        "Poses too similar? __pose__/__angle__ lead the instruction on purpose -- raise the multiple-angles\n"
+        "  LoRA toward 1.0, or drop a scene axis. Identity drifting? lower the multiple-angles LoRA."],
         pos=(2120, 700), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
 
     add_finish(b, (vdec, "IMAGE"), f"dataset/{name}/{name}", x=3520)

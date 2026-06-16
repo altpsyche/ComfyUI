@@ -71,8 +71,8 @@ DOCS = {
      "Edit instruction node is mode='populate': the UI shows the resolved prompt and re-rolls each "
      "queue; populated_text holds the wildcards too, so a headless API POST still expands them in the "
      "node backend (keyed on the seed).",
-     "SLOW on 16 GB is expected: a changing prompt reloads the 9 GB Qwen text encoder and swaps it with "
-     "the 15 GB diffusion model each frame. A static prompt caches the encode (fast) but kills variety.",
+     "Instruction keeps __angle__/__pose__ leading (then framing/background/lighting); a framing-first "
+     "rewrite reduced pose variety, so don't reorder pose behind the scene axes.",
      "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",
      "Wildcards (__framing__/__angle__/__pose__/__expression__/__background__/__lighting__) live in "
      "custom_nodes/ComfyUI-Impact-Pack/wildcards/.",
