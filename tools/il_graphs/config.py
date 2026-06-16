@@ -41,11 +41,13 @@ NOTE_C, NOTE_BG = "#432", "#322"
 #           AND auto-baked into the trigger at train time (train_lora derives the prune from this string
 #           -- colour/style variants included -- so the outfit renders identically in every scene). You
 #           do NOT hand-list outfit tags anywhere; just describe the outfit once here.
-#   like    (optional) "<other entry>": inherit that entry's id + hero_seed (same face). Use for the
-#           SAME character in a DIFFERENT locked outfit -> a separate LoRA with an identical face; you
-#           only write the new outfit. Best for comics (one locked LoRA per character+outfit).
-#   hero_seed (optional) int; pins the Stage-1 hero face. Set it once you've rerolled to a face you like
-#           so `like` variants reuse the exact same face. Defaults to the shared SEED.
+#   like    (optional) "<other entry>": inherit that entry's id + hero_seed (same facial identity). Use
+#           for the SAME character in a DIFFERENT locked outfit -> a separate LoRA, recognizably the same
+#           person; you only write the new outfit. Best for comics (one locked LoRA per character+outfit).
+#           NB: the variant re-renders its own hero with the NEW outfit in the prompt, so the face is
+#           close but NOT pixel-identical -- pin hero_seed (below) + tight id to maximize the match.
+#   hero_seed (optional) int; pins the Stage-1 hero seed. Set it once you've rerolled to a face you like
+#           so `like` variants reuse the same seed (closest achievable face). Defaults to the shared SEED.
 #   prune   (optional) EXTRA tags to bake beyond the outfit (e.g. identity tags for a harder face lock).
 #           Leave "" -- the outfit is already auto-baked; identity stays promptable by default.
 # Every entry also gets a roster.json line (name/trigger/id/outfit/prune) for the trainer.
@@ -55,7 +57,7 @@ CHARACTERS = {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",
         "outfit": "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes",
     },
-    # SAME character, DIFFERENT locked outfit -> separate LoRA, identical face (inherits aria's id+seed).
+    # SAME character, DIFFERENT locked outfit -> separate LoRA, same identity (inherits aria's id+seed).
     # Only the outfit is written; this is the pattern for a character's costume changes in a comic.
     "aria_gala": {
         "like": "aria",

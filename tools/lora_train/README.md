@@ -1,5 +1,10 @@
 # Character LoRA training — complete guide (A → Z)
 
+> In a hurry? **[QUICKSTART.md](QUICKSTART.md)** — the whole loop, commands only.
+> Steering pose/angle/scene variety? **[WILDCARDS.md](WILDCARDS.md)**.
+> Before changing the pipeline? **[GOTCHAS.md](GOTCHAS.md)** — dead ends + traps, don't re-do them.
+
+
 Train one LoRA per character so that character renders **identically every time** in any IL_*
 workflow. Text prompts and IPAdapter both drift; a trained LoRA is the only thing that locks an
 exact identity. This kit takes you from "no images" to "trained LoRA loaded in the LoRA bank",
@@ -110,8 +115,9 @@ CHARACTERS = {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",  # identity ONLY
         "outfit": "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes",
     },
-    # SAME face, DIFFERENT locked outfit -> a separate LoRA. `like` inherits aria's id + hero face;
+    # SAME identity, DIFFERENT locked outfit -> a separate LoRA. `like` inherits aria's id + hero_seed;
     # you write only the new outfit. This is the pattern for a character's costume changes in a comic.
+    # (Faces are recognizably the same person, not pixel-identical -- see the `like` note below.)
     "aria_gala": { "like": "aria", "outfit": "elegant emerald evening gown, long gloves, high heels" },
     # minimal entry: just identity, checkpoint picks the clothes; trigger defaults to kaelchar.
     "kael": { "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)" },
@@ -126,11 +132,17 @@ Field-by-field:
   across poses, **and auto-baked into the trigger at train time** — `train_lora` derives the prune from
   this string (colour/style variants included), so the outfit renders identically in every scene with
   **no manual tag-hunting**. Just describe the outfit once here. Leave `""` to let the checkpoint pick.
-- **`like`** — *(optional)* `"<other entry>"`: inherit that entry's `id` + `hero_seed` (same face). Use
-  for the **same character in a different locked outfit** → a separate LoRA with an identical face; you
-  write only the new `outfit`. The recommended pattern for comics (one locked LoRA per character+outfit).
+- **`like`** — *(optional)* `"<other entry>"`: inherit that entry's `id` + `hero_seed`. Use for the
+  **same character in a different locked outfit** → a separate LoRA, same facial identity; you write only
+  the new `outfit`. The recommended pattern for comics (one locked LoRA per character+outfit).
+  **Caveat on "same face":** the variant re-renders its own Stage-1 hero with the *new outfit* in the
+  prompt, so even with the inherited `id` + seed the face is **recognizably the same person, not
+  pixel-identical** (the outfit tokens shift the diffusion trajectory; and the two are separate LoRAs on
+  separate datasets). To make them as close as possible, **pin `hero_seed`** on the parent (below) once
+  you've found a face you like, then keep the `id` tightly weighted. That's the same "recognizably the
+  same person" bar the dataset itself targets — good enough for consistent comic panels.
 - **`hero_seed`** — *(optional)* int pinning the Stage-1 hero face. Set it once you've rerolled to a face
-  you like, so `like` variants reuse the exact same face. Defaults to the shared seed.
+  you like, so `like` variants reuse the same hero seed (closest achievable face). Defaults to the shared seed.
 - **`prune`** — *(optional)* EXTRA tags to bake beyond the outfit (e.g. identity tags for a harder face
   lock). Usually `""` — the outfit is already auto-baked; identity stays promptable. See [Phase 4](#8-phase-4--caption--train).
 - **`trigger`** — the caption keyword (default `<name>char`, e.g. `ariachar`). Use a *rare* string.
@@ -156,7 +168,7 @@ re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/que
 | Want to change | Edit | After |
 |---|---|---|
 | **Add / remove a character** | `CHARACTERS` in [`tools/il_graphs/config.py`](../il_graphs/config.py) | regenerate |
-| **Same face, new locked outfit** | add an entry with `like: "<char>"` + its own `outfit` | regenerate (own LoRA, same face) |
+| **Same character, new locked outfit** | add an entry with `like: "<char>"` + its own `outfit` | regenerate (own LoRA, same identity; pin `hero_seed` to maximize face match) |
 | **Signature outfit** (auto-locked) | that entry's `outfit` (auto-baked into the trigger at train) | regenerate |
 | **Character identity** (face/hair/eyes) | that entry's `id` (Stage-1 hero prompt) | regenerate |
 | **Trigger / pruned tags** | `trigger` / `prune` in the entry | regenerate (rewrites `roster.json`) |
@@ -314,8 +326,9 @@ One command per character, or the whole roster:
 1. **Validates** `output/dataset/<Char>/` exists and has ≥ `-MinImages` (12).
 2. **Auto-captions** (if no `.txt` present): runs the **WD14 tagger**
    (`SmilingWolf/wd-v1-4-convnextv2-tagger-v2`) to write booru tags, then `prep_captions.py`
-   prepends the **trigger** and removes the **prune** tags (exact match). Trigger + prune come from
-   `roster.json` unless you pass `-Trigger` / `-Prune`.
+   prepends the **trigger** and removes the outfit + prune tags (tolerant head-noun / synonym match,
+   not exact — see [Outfit lock](#outfit-lock--prune-mostly-automatic) below). Trigger / outfit / prune
+   come from `roster.json` unless you pass `-Trigger` / `-Outfit` / `-Prune`.
 3. **Derives `num_repeats`** from the target step count: `repeats = round(Steps × Batch / (images ×
    Epochs))` — so 15 or 50 images both land near the target step count.
 4. **Writes** `tools/lora_train/.cache/<Char>.toml` (the sd-scripts dataset config).
