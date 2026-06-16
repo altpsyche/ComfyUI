@@ -2,43 +2,122 @@
 
 After running sd-scripts' tagger over the curated image folder, this:
   1. prepends a unique TRIGGER token (kept first; protected by keep_tokens=1), and
-  2. PRUNES the identity tags you want the LoRA to *bake into* the trigger (hair, eyes, face)
-     so they stop being optional prompt words and become part of the character itself.
-Variable tags (pose, expression, framing, background, action) are kept so they stay promptable.
+  2. PRUNES the tags you want the LoRA to *bake into* the trigger so they stop being optional
+     prompt words and become part of the character itself.
+
+Pruning is AUTOMATIC for the outfit: pass --outfit (the same signature-outfit string from the
+roster) and every caption tag whose head-noun matches an outfit garment is removed -- including
+colour/style variants the tagger invents (e.g. outfit "teal and white tennis dress" locks the
+tagger's "white dress", "tennis dress", "dress"). That folds the whole outfit into the trigger so
+it renders identically in every scene, with no manual tag-hunting. Variable tags (pose, expression,
+framing, background, action) are kept so they stay promptable.
+
+You can still pass --prune for extra exact tags to bake (e.g. identity tags for a harder face lock),
+and --keep to protect tags from being pruned.
 
 Usage:
-  python prep_captions.py "C:/.../output/dataset/charA" --trigger ariacharA \
-      --prune "brown hair,long hair,green eyes,freckles"
+  python prep_captions.py "C:/.../output/dataset/aria" --trigger ariachar \
+      --outfit "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes"
 """
 from __future__ import annotations
 import argparse
 import pathlib
+import re
+
+
+# garment head-nouns get baked; these expression/state/view tags are protected even if a head-noun
+# would otherwise match -- they must stay promptable for comic panels.
+PROTECT = {
+    "closed eyes", "one eye closed", "half-closed eyes", "looking at viewer", "looking away",
+    "looking back", "looking to the side", "looking up", "looking down",
+}
+# structural tags never derived into the lock set from the outfit string.
+STRUCTURAL = {"1girl", "1boy", "1other", "2girls", "solo", "solo focus"}
+# interchangeable garment head-nouns the tagger swaps in: if the outfit hits one, lock the whole
+# cluster (so outfit "white shoes" also locks the tagger's "white footwear"/"sneakers"). normalized form.
+SYNONYM_CLUSTERS = [
+    {"shoe", "boot", "sneaker", "footwear", "heel", "sandal", "loafer"},
+    {"short", "shorts"},
+    {"top", "shirt", "tanktop", "camisole"},
+    {"dress", "gown"},
+    {"necklace", "jewelry", "choker", "pendant"},
+]
+
+
+def _norm(word: str) -> str:
+    """lower + light plural fold so 'shoes'~'shoe', 'wristbands'~'wristband' match consistently."""
+    w = word.lower().strip()
+    return w[:-1] if (w.endswith("s") and len(w) > 3) else w
+
+
+def _phrases(s: str):
+    """split a roster id/outfit string into clean tag phrases (strip weights/parens)."""
+    out = []
+    for p in s.split(","):
+        p = re.sub(r":\d+(\.\d+)?", "", p)          # drop ':1.1' weights
+        p = p.replace("(", "").replace(")", "").strip().lower()
+        if p and p not in STRUCTURAL:
+            out.append(p)
+    return out
+
+
+def build_lock(outfit: str, extra_prune: str):
+    """Return (exact_phrases, head_nouns) to remove, derived from the outfit + explicit extras."""
+    phrases, nouns = set(), set()
+    for p in _phrases(outfit):
+        phrases.add(p)                              # exact phrase, e.g. 'teal and white tennis dress'
+        nouns.add(_norm(p.split()[-1]))             # head noun, e.g. 'dress' -> matches any '... dress'
+    for t in extra_prune.split(","):
+        t = t.strip().lower()
+        if t:
+            phrases.add(t)
+    for cluster in SYNONYM_CLUSTERS:               # if the outfit hits a cluster, lock its synonyms too
+        ncluster = {_norm(c) for c in cluster}     # normalize so the plural-fold matches (dress~dres)
+        if nouns & ncluster:
+            nouns |= ncluster
+    return phrases, nouns
+
+
+def should_prune(tag: str, phrases: set, nouns: set, keep: set) -> bool:
+    t = tag.lower()
+    if t in keep or t in PROTECT:
+        return False
+    if t in phrases:
+        return True
+    return _norm(t.split()[-1]) in nouns if t else False
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("folder", help="folder of images + WD14 .txt captions")
-    ap.add_argument("--trigger", required=True, help="unique trigger token, e.g. ariacharA")
+    ap.add_argument("--trigger", required=True, help="unique trigger token, e.g. ariachar")
+    ap.add_argument("--outfit", default="",
+                    help="roster outfit string; its garment head-nouns are auto-pruned (colour/style "
+                         "variants included) so the outfit bakes into the trigger.")
     ap.add_argument("--prune", default="",
-                    help="comma-separated tags to remove (exact, case-insensitive match — so "
-                         "pruning 'hair' won't also nuke 'hair ornament'). These bake into the trigger.")
+                    help="extra comma-separated tags to bake (exact or head-noun match), e.g. identity "
+                         "tags for a harder face lock.")
+    ap.add_argument("--keep", default="",
+                    help="comma-separated tags to protect from pruning (stay promptable).")
     args = ap.parse_args()
 
-    prune = {t.strip().lower() for t in args.prune.split(",") if t.strip()}
+    phrases, nouns = build_lock(args.outfit, args.prune)
+    keep = {t.strip().lower() for t in args.keep.split(",") if t.strip()}
     trig = args.trigger.lower()
     folder = pathlib.Path(args.folder)
     txts = sorted(folder.glob("*.txt"))
     if not txts:
-        raise SystemExit(f"no .txt captions in {folder} — run the WD14 tagger first")
+        raise SystemExit(f"no .txt captions in {folder} -- run the WD14 tagger first")
 
-    changed = 0
+    changed = removed_total = 0
     for f in txts:
         tags = [t.strip() for t in f.read_text(encoding="utf-8").split(",") if t.strip()]
-        tags = [t for t in tags if t.lower() not in prune and t.lower() != trig]
-        tags = [args.trigger] + tags                    # trigger first (protected by keep_tokens=1)
-        f.write_text(", ".join(tags), encoding="utf-8")
+        kept = [t for t in tags if t.lower() != trig and not should_prune(t, phrases, nouns, keep)]
+        removed_total += len(tags) - len(kept)
+        f.write_text(", ".join([args.trigger] + kept), encoding="utf-8")  # trigger first (keep_tokens=1)
         changed += 1
-    print(f"prepped {changed} captions in {folder} (trigger={args.trigger!r}, pruned {len(prune)} tags)")
+    print(f"prepped {changed} captions in {folder} (trigger={args.trigger!r}, "
+          f"lock nouns={sorted(nouns)}, removed {removed_total} tag instances)")
 
 
 if __name__ == "__main__":

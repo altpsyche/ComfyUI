@@ -18,7 +18,8 @@
 param(
     [Parameter(Mandatory)] [string]$Char,   # dataset folder name + default LoRA name
     [string]$Trigger,                        # caption trigger token (default: <Char>char)
-    [string]$Prune = "",                     # exact tags to bake into the trigger (comma list)
+    [string]$Outfit,                         # roster outfit string; its garments auto-bake into the trigger (default: from roster.json)
+    [string]$Prune = "",                     # EXTRA exact/head-noun tags to bake (outfit is auto-pruned from -Outfit)
     [string]$Base,                           # checkpoint (default: oneObsession in models/checkpoints)
     [int]$Dim = 16,
     [int]$Alpha = 8,
@@ -50,6 +51,7 @@ if (Test-Path $rosterFile) {
         if ($e.name -eq $Char) {
             if (-not $Trigger) { $Trigger = [string]$e.trigger }
             if (-not $PSBoundParameters.ContainsKey('Prune') -and $e.prune) { $Prune = [string]$e.prune }
+            if (-not $PSBoundParameters.ContainsKey('Outfit') -and $e.outfit) { $Outfit = [string]$e.outfit }
             break
         }
     }
@@ -84,7 +86,8 @@ if ($SkipCaption) {
     # NB: only pass --prune when non-empty -- PowerShell drops an empty-string arg, leaving argparse
     # to see "--prune" with no value (errors). prep_captions defaults --prune to "" anyway.
     $prepArgs = @($data, '--trigger', $Trigger)
-    if ($Prune) { $prepArgs += @('--prune', $Prune) }
+    if ($Outfit) { $prepArgs += @('--outfit', $Outfit) }   # auto-bakes the outfit (colour variants too)
+    if ($Prune)  { $prepArgs += @('--prune', $Prune) }
     & $py (Join-Path $PSScriptRoot 'prep_captions.py') @prepArgs
     if ($LASTEXITCODE -ne 0) { Die "prep_captions failed" }
 }

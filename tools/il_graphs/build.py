@@ -4,7 +4,7 @@ Run:  python tools/build_il_graphs.py   (or:  python -m il_graphs.build)
 """
 from __future__ import annotations
 import json
-from .config import OUT, ROOT, CHARACTERS
+from .config import OUT, ROOT, CHARACTERS, SEED
 from .docs import md
 from .graphs import (build_base, build_refine, build_guided, build_studio,
                      build_max, build_ipadapter, build_pose, build_lcm,
@@ -31,14 +31,24 @@ def main():
     edit_req = ["CheckpointLoaderSimple", "UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
                 "FluxKontextMultiReferenceLatentMethod", "KSampler", "VAEDecode", "SaveImage"]
 
-    # roster.json (name/trigger/prune) is the trainer's source of truth. Each character gets exactly one
-    # dataset workflow: the self-contained Qwen-Image-Edit graph IL_DatasetEdit_<name>.
+    # roster.json (name/trigger/id/outfit/prune) is the trainer's source of truth. Each character gets
+    # exactly one dataset workflow: the self-contained Qwen-Image-Edit graph IL_DatasetEdit_<name>.
+    # `like: "<other>"` inherits that entry's id + hero_seed so a same-face/different-outfit variant
+    # (e.g. aria_gala like aria) needs only its own outfit -- same hero face, separate locked LoRA.
+    # roster carries `outfit` so train_lora auto-bakes it into the trigger (no manual prune chasing).
     roster = []
-    for cname, spec in CHARACTERS.items():
+    for cname, raw in CHARACTERS.items():
+        spec = dict(raw)
+        if "like" in spec:
+            parent = CHARACTERS[spec["like"]]
+            spec.setdefault("id", parent["id"])
+            spec.setdefault("hero_seed", parent.get("hero_seed", SEED))
+        hero_seed = spec.get("hero_seed", SEED)
+        outfit = spec.get("outfit", "")
         roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",
-                       "prune": spec.get("prune", "")})
+                       "id": spec["id"], "outfit": outfit, "prune": spec.get("prune", "")})
         egname = f"IL_DatasetEdit_{cname}"
-        graphs[egname] = build_dataset_edit(cname, spec["id"], spec.get("outfit", ""))
+        graphs[egname] = build_dataset_edit(cname, spec["id"], outfit, hero_seed)
         req[egname] = edit_req
     (ROOT / "tools/lora_train/roster.json").write_text(json.dumps(roster, indent=2), encoding="utf-8")
 

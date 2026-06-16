@@ -37,29 +37,39 @@ NOTE_C, NOTE_BG = "#432", "#322"
 #   id      identity tags only (face/hair/eyes/body). This is the STAGE-1 hero prompt (rendered in
 #           your checkpoint, then re-posed by Qwen-Edit). Weight the face-defining tags, e.g.
 #           "(green eyes:1.1)". No outfit here.
-#   outfit  (optional) signature clothes, kept separate from identity; appended to the Stage-1 hero
-#           prompt so the hero wears them. Leave "" to let the checkpoint pick.
-#   prune   (optional) exact tags train_lora bakes into the trigger; "" = leave identity promptable.
-# Every entry also gets a roster.json line (name/trigger/prune) for the trainer.
+#   outfit  (optional) signature clothes. Appended to the Stage-1 hero so Qwen keeps them across poses,
+#           AND auto-baked into the trigger at train time (train_lora derives the prune from this string
+#           -- colour/style variants included -- so the outfit renders identically in every scene). You
+#           do NOT hand-list outfit tags anywhere; just describe the outfit once here.
+#   like    (optional) "<other entry>": inherit that entry's id + hero_seed (same face). Use for the
+#           SAME character in a DIFFERENT locked outfit -> a separate LoRA with an identical face; you
+#           only write the new outfit. Best for comics (one locked LoRA per character+outfit).
+#   hero_seed (optional) int; pins the Stage-1 hero face. Set it once you've rerolled to a face you like
+#           so `like` variants reuse the exact same face. Defaults to the shared SEED.
+#   prune   (optional) EXTRA tags to bake beyond the outfit (e.g. identity tags for a harder face lock).
+#           Leave "" -- the outfit is already auto-baked; identity stays promptable by default.
+# Every entry also gets a roster.json line (name/trigger/id/outfit/prune) for the trainer.
 CHARACTERS = {
     # Tennis player. Teal complements warm auburn hair; white flatters fair/freckled skin; nods to green eyes.
-    # Locked outfit: `prune` folds the garment tags into the trigger so it always renders the same kit.
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",
         "outfit": "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes",
-        "prune": "tennis uniform, tennis dress, dress, visor, wristband, shoes",
+    },
+    # SAME character, DIFFERENT locked outfit -> separate LoRA, identical face (inherits aria's id+seed).
+    # Only the outfit is written; this is the pattern for a character's costume changes in a comic.
+    "aria_gala": {
+        "like": "aria",
+        "outfit": "elegant emerald evening gown, long gloves, silver necklace, high heels",
     },
     # Basketball player. Orange is the complement of blue eyes (pops) and vivid against black hair.
     "kael": {
         "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)",
         "outfit": "basketball uniform, orange and white basketball jersey, orange basketball shorts, white headband, basketball shoes",
-        "prune": "basketball uniform, basketball, jersey, shorts, headband, shoes",
     },
     # Superhero. Deep violet echoes the eyes, silver echoes the hair, both striking on pale skin.
     "nyx": {
         "id": "1girl, solo, (silver bob hair:1.1), (violet eyes:1.1)",
         "outfit": "superhero costume, deep violet bodysuit, silver accents, silver belt, knee boots, purple cape",
-        "prune": "superhero, bodysuit, cape, belt, boots, gloves",
     },
 }
 # Suffix that turns the identity tags into a clean FULL-BODY Stage-1 hero (the edit's identity AND outfit

@@ -71,7 +71,7 @@ QE_LIGHTNING = "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
 QE_ANGLES = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
 
 
-def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
+def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed=SEED):
     """FRONTIER dataset generator (self-contained): generate ONE original hero, then re-pose it into
     many varied shots with Qwen-Image-Edit-2511 (GGUF), holding identity + art style. One graph per
     roster character (IL_DatasetEdit_<name>); the trainer reads output/dataset/<name>/ as usual.
@@ -89,7 +89,7 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
     # ===== STAGE 1 — Illustrious hero generator (text2img from the character's id; pick a face) =====
     ck = b.add("CheckpointLoaderSimple", [CKPT], pos=(0, 0), title="Checkpoint (Illustrious)")
     hvae = b.add("VAELoader", [VAE], pos=(0, 160), title="VAE (hero)")
-    hseed = b.add("Seed", [SEED, "fixed"], pos=(0, 300), title="Hero Seed (fixed = pick the face)")
+    hseed = b.add("Seed", [hero_seed, "fixed"], pos=(0, 300), title="Hero Seed (fixed = pick the face)")
     hclip = b.add("CLIPSetLastLayer", [-2], pos=(0, 450), title="CLIP skip -2")
     b.link(ck, "CLIP", hclip, "clip")
     hpos = b.add("CLIPTextEncode", [identity + (", " + outfit if outfit else "") + REF_SUFFIX],
@@ -97,7 +97,7 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit=""):
     hneg = b.add("CLIPTextEncode", [NEG], pos=(360, 180), title="Negative")
     hlat = b.add("EmptyLatentImage", [832, 1216, 1], pos=(360, 360), title="Hero latent 832x1216")
     b.link(hclip, "CLIP", hpos, "clip"); b.link(hclip, "CLIP", hneg, "clip")
-    hks = b.add("KSampler", [SEED, "fixed", BASE_STEPS, BASE_CFG, BASE_SAMPLER, BASE_SCHED, 1.0],
+    hks = b.add("KSampler", [hero_seed, "fixed", BASE_STEPS, BASE_CFG, BASE_SAMPLER, BASE_SCHED, 1.0],
                 pos=(720, 0), title="Hero KSampler")
     b.link(ck, "MODEL", hks, "model"); b.link(hpos, "CONDITIONING", hks, "positive")
     b.link(hneg, "CONDITIONING", hks, "negative"); b.link(hlat, "LATENT", hks, "latent_image")

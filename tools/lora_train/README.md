@@ -101,21 +101,20 @@ Expect `GPU bf16 matmul`, `sd-scripts library import`, `onnxruntime`, `prodigyop
 ## 5. Phase 1 — define the roster
 
 Edit the **`CHARACTERS`** dict in [`tools/il_graphs/config.py`](../il_graphs/config.py) — one entry
-per character. Every entry gets a **`roster.json`** line (name/trigger/prune — the trainer's source
+per character. Every entry gets a **`roster.json`** line (name/trigger/id/outfit/prune — the trainer's source
 of truth) and an **`IL_DatasetEdit_<name>`** Qwen-Image-Edit graph.
 
 ```python
 CHARACTERS = {
     "aria": {
         "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",  # identity ONLY
-        "prune": "",            # exact tags to BAKE into the trigger ("" = leave promptable)
-        # "trigger": "ariachar" # optional; defaults to "<name>char"
+        "outfit": "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes",
     },
-    # minimal entry: just identity; trigger defaults to kaelchar.
-    "kael": { "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)", "prune": "" },
-    # optional signature outfit (worn by the Stage-1 hero):
-    "nyx": { "id": "1girl, solo, (silver bob hair:1.1), (violet eyes:1.1)",
-             "outfit": "casual hoodie, jeans", "prune": "" },
+    # SAME face, DIFFERENT locked outfit -> a separate LoRA. `like` inherits aria's id + hero face;
+    # you write only the new outfit. This is the pattern for a character's costume changes in a comic.
+    "aria_gala": { "like": "aria", "outfit": "elegant emerald evening gown, long gloves, high heels" },
+    # minimal entry: just identity, checkpoint picks the clothes; trigger defaults to kaelchar.
+    "kael": { "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)" },
 }
 ```
 
@@ -123,10 +122,17 @@ Field-by-field:
 - **`id`** — identity tags ONLY: hair (colour/length/style), eyes, face marks, body. **No outfit.**
   This is the **Stage-1 hero prompt** in `IL_DatasetEdit_<name>` — be specific and weight the
   face-defining tags (`(green eyes:1.1)`). The hero is rendered from it, then re-posed.
-- **`outfit`** — *(optional)* signature clothes, appended to the Stage-1 hero prompt so the hero
-  wears them (the edit then keeps that outfit across poses). Leave `""` to let the checkpoint pick.
-- **`prune`** — exact tags `train_lora` strips from captions so they fold into the trigger (stronger
-  identity lock). `""` keeps identity tags promptable. See [Phase 4](#8-phase-4--caption--train).
+- **`outfit`** — *(optional)* the signature clothes. It's appended to the Stage-1 hero so Qwen keeps it
+  across poses, **and auto-baked into the trigger at train time** — `train_lora` derives the prune from
+  this string (colour/style variants included), so the outfit renders identically in every scene with
+  **no manual tag-hunting**. Just describe the outfit once here. Leave `""` to let the checkpoint pick.
+- **`like`** — *(optional)* `"<other entry>"`: inherit that entry's `id` + `hero_seed` (same face). Use
+  for the **same character in a different locked outfit** → a separate LoRA with an identical face; you
+  write only the new `outfit`. The recommended pattern for comics (one locked LoRA per character+outfit).
+- **`hero_seed`** — *(optional)* int pinning the Stage-1 hero face. Set it once you've rerolled to a face
+  you like, so `like` variants reuse the exact same face. Defaults to the shared seed.
+- **`prune`** — *(optional)* EXTRA tags to bake beyond the outfit (e.g. identity tags for a harder face
+  lock). Usually `""` — the outfit is already auto-baked; identity stays promptable. See [Phase 4](#8-phase-4--caption--train).
 - **`trigger`** — the caption keyword (default `<name>char`, e.g. `ariachar`). Use a *rare* string.
 
 Then **regenerate**:
@@ -134,7 +140,7 @@ Then **regenerate**:
 python tools/build_il_graphs.py
 ```
 This writes one **`IL_DatasetEdit_<name>`** workflow per entry (e.g. `IL_DatasetEdit_aria`) to
-`user/default/workflows/`, plus `tools/lora_train/roster.json` (name / trigger / prune) that the
+`user/default/workflows/`, plus `tools/lora_train/roster.json` (name / trigger / id / outfit / prune) that the
 train scripts read. (Stale dataset graphs from removed/renamed characters — and any legacy
 `IL_Dataset_<name>` from the retired hero+IPAdapter route — are pruned automatically on regenerate.)
 
@@ -150,6 +156,8 @@ re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/que
 | Want to change | Edit | After |
 |---|---|---|
 | **Add / remove a character** | `CHARACTERS` in [`tools/il_graphs/config.py`](../il_graphs/config.py) | regenerate |
+| **Same face, new locked outfit** | add an entry with `like: "<char>"` + its own `outfit` | regenerate (own LoRA, same face) |
+| **Signature outfit** (auto-locked) | that entry's `outfit` (auto-baked into the trigger at train) | regenerate |
 | **Character identity** (face/hair/eyes) | that entry's `id` (Stage-1 hero prompt) | regenerate |
 | **Trigger / pruned tags** | `trigger` / `prune` in the entry | regenerate (rewrites `roster.json`) |
 | **Poses** | `custom_nodes/ComfyUI-Impact-Pack/wildcards/pose.txt` | reload graph |
@@ -349,16 +357,21 @@ wheel pain) · `no_half_vae` · `--network_train_unet_only` (unless `-TrainTextE
 **Output:** `models/loras/<Char>_v1.safetensors` plus one checkpoint per epoch
 (`<Char>_v1-000001.safetensors` …).
 
-### Prune: bake vs promptable
+### Outfit lock + prune (mostly automatic)
 - A tag **kept** in captions → the model ties that look to the word → **promptable** (changeable).
-- A tag **pruned** (and visually constant) → folds into the **trigger** → always appears, harder to change.
-- **Community default for a fixed character: prune the intrinsic identity tags** (hair colour/length,
-  eye colour, face marks) so they bake into the trigger and you don't have to type them. We ship
-  `prune=""` (promptable) as the conservative default; for a locked signature character, populate it.
-- Signature outfit you want locked → add the outfit tags to `prune`. Swappable outfit → keep them.
-- Note: prune is exact-match against WD14 output, so `"long hair"` matches the tag `long hair`, not
-  `(long wavy auburn hair:1.1)`. It's optional fine-tuning — identity is learned from the consistent
-  dataset regardless.
+  A tag **removed** (and visually constant) → folds into the **trigger** → always appears, hard to change.
+- **The outfit is auto-locked — you do nothing.** `train_lora` reads the entry's `outfit` from
+  `roster.json` and passes it to `prep_captions`, which removes every caption tag whose **head-noun**
+  matches an outfit garment — including colour/style variants the tagger invents. So `outfit: "teal and
+  white tennis dress, white visor, white shoes"` locks the tagger's `white dress`, `tennis dress`,
+  `dress`, `visor`, `white footwear`, etc. No exact-tag hunting, no opening caption files. (Footwear,
+  shorts, and top synonyms are clustered so `shoes` also catches `footwear`/`sneakers`.)
+- **Face likeness** comes from the consistent dataset + the trigger + training — not from pruning. We
+  leave identity tags **promptable** by default (`prune=""`). If you want a *harder* face lock, add
+  identity tags to `prune` (e.g. `-Prune "auburn hair,green eyes,freckles"`) — they're matched the same
+  tolerant way. For tougher likeness also try `-TrainTextEncoder` or `-Dim 32`.
+- `prune` is for **extras only** (matched by exact tag or head-noun, plus the footwear/etc. clusters).
+  You rarely need it — the outfit is already handled by `outfit`.
 
 ## 9. Phase 5 — use the LoRA
 
@@ -420,9 +433,9 @@ tools/
   lora_train/
     README.md                 this file
     .venv/                    trainer venv (uv, py3.11, torch cu128)   [gitignored]
-    roster.json               name/trigger/prune manifest             [gitignored, generated]
+    roster.json               name/trigger/id/outfit/prune manifest   [gitignored, generated]
     .cache/<char>.toml        generated dataset configs               [gitignored]
-    prep_captions.py          trigger-prepend + prune
+    prep_captions.py          trigger-prepend + auto-bake outfit (tolerant) + extra prune
     train_lora.ps1            caption + train one character
     train_all.ps1             train the whole roster
     verify_env.py             venv sanity check
