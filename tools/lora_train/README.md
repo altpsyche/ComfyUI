@@ -101,27 +101,30 @@ Re-provision just the trainer (without a full setup):
 ```powershell
 tools\lora_train\.venv\Scripts\python.exe tools\lora_train\verify_env.py
 ```
-Expect `GPU bf16 matmul`, `sd-scripts library import`, `onnxruntime`, `prodigyopt`, `accelerate` all `[+]`.
+Expect `GPU bf16 matmul`, `sd-scripts library import`, `onnxruntime`, `prodigyopt`, `accelerate`,
+`dataset config TOML parses`, and `dataset wildcards present` all `[+]`.
 
 ## 5. Phase 1 — define the roster
 
-Edit the **`CHARACTERS`** dict in [`tools/il_graphs/config.py`](../il_graphs/config.py) — one entry
-per character. Every entry gets a **`roster.json`** line (name/trigger/id/outfit/prune — the trainer's source
-of truth) and an **`IL_DatasetEdit_<name>`** Qwen-Image-Edit graph.
+Edit the data file [`tools/il_graphs/characters.toml`](../il_graphs/characters.toml) — one `[table]`
+per character (no Python). Every table gets a **`roster.json`** line (name/trigger/id/outfit/prune — the
+trainer's source of truth) and an **`IL_DatasetEdit_<name>`** Qwen-Image-Edit graph.
 
-```python
-CHARACTERS = {
-    "aria": {
-        "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",  # identity ONLY
-        "outfit": "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes",
-    },
-    # SAME identity, DIFFERENT locked outfit -> a separate LoRA. `like` inherits aria's id + hero_seed;
-    # you write only the new outfit. This is the pattern for a character's costume changes in a comic.
-    # (Faces are recognizably the same person, not pixel-identical -- see the `like` note below.)
-    "aria_gala": { "like": "aria", "outfit": "elegant emerald evening gown, long gloves, high heels" },
-    # minimal entry: just identity, checkpoint picks the clothes; trigger defaults to kaelchar.
-    "kael": { "id": "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)" },
-}
+```toml
+[aria]
+id = "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"   # identity ONLY
+outfit = "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes"
+
+# SAME identity, DIFFERENT locked outfit -> a separate LoRA. `like` inherits aria's id + hero_seed;
+# you write only the new outfit. The pattern for a character's costume changes in a comic.
+# (Faces are recognizably the same person, not pixel-identical -- see the `like` note below.)
+[aria_gala]
+like = "aria"
+outfit = "elegant emerald evening gown, long gloves, high heels"
+
+# minimal table: just identity, checkpoint picks the clothes; trigger defaults to kaelchar.
+[kael]
+id = "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)"
 ```
 
 Field-by-field:
@@ -167,11 +170,11 @@ re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/que
 
 | Want to change | Edit | After |
 |---|---|---|
-| **Add / remove a character** | `CHARACTERS` in [`tools/il_graphs/config.py`](../il_graphs/config.py) | regenerate |
-| **Same character, new locked outfit** | add an entry with `like: "<char>"` + its own `outfit` | regenerate (own LoRA, same identity; pin `hero_seed` to maximize face match) |
-| **Signature outfit** (auto-locked) | that entry's `outfit` (auto-baked into the trigger at train) | regenerate |
-| **Character identity** (face/hair/eyes) | that entry's `id` (Stage-1 hero prompt) | regenerate |
-| **Trigger / pruned tags** | `trigger` / `prune` in the entry | regenerate (rewrites `roster.json`) |
+| **Add / remove a character** | a `[table]` in [`tools/il_graphs/characters.toml`](../il_graphs/characters.toml) | regenerate |
+| **Same character, new locked outfit** | add a `[table]` with `like = "<char>"` + its own `outfit` | regenerate (own LoRA, same identity; pin `hero_seed` to maximize face match) |
+| **Signature outfit** (auto-locked) | that table's `outfit` (auto-baked into the trigger at train) | regenerate |
+| **Character identity** (face/hair/eyes) | that table's `id` (Stage-1 hero prompt) | regenerate |
+| **Trigger / pruned tags** | `trigger` / `prune` in the table | regenerate (rewrites `roster.json`) |
 | **Poses** | `custom_nodes/ComfyUI-Impact-Pack/wildcards/pose.txt` | reload graph |
 | **Camera angles** | `…/wildcards/angle.txt` | reload graph |
 | **Expressions** | `…/wildcards/expression.txt` | reload graph |
@@ -182,7 +185,7 @@ re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/que
 | **Hero render** (checkpoint / sampler / steps / size) | `CKPT`, `BASE_*`, `REF_SUFFIX` in `config.py` | regenerate |
 | **Qwen-Edit knobs** (LoRA strengths, KSampler steps) | `build_dataset_edit()` in `graphs.py` | regenerate |
 | **Qwen-Edit quant** (VRAM/speed) | `scripts/install_qwen_edit.ps1 -Quant Q4_K_M` | re-run installer |
-| **Training params** (rank / optimizer / steps) | `train_lora.ps1` flags — `-Dim`, `-Optimizer`, `-Steps`, … | n/a |
+| **Training params** (rank / optimizer / steps / LR / resolution …) | `train.toml` (`[defaults]` / `[profiles.*]` / `[train.<char>]`) or `train_lora.ps1` flags — full matrix in [REFERENCE.md](REFERENCE.md) | n/a |
 
 > ⚠️ The wildcard `.txt` files live inside the **Impact-Pack submodule** (untracked by this fork), so
 > they exist on this machine but a fresh clone won't have them. Editing them is per-machine.
@@ -335,6 +338,12 @@ One command per character, or the whole roster:
 5. **Trains** via `accelerate launch sdxl_train_network.py` (from the submodule dir).
 
 ### Parameters
+Training params are **data-driven and layered**: defaults live in
+[`train.toml`](train.toml) `[defaults]`, with named `[profiles.*]` and optional per-character
+`[train.<char>]` overrides; CLI flags override for one run. **Precedence (highest wins): CLI flag >
+`-Profile` > `[train.<char>]` > `[defaults]`.** The complete flag↔key matrix is in
+[REFERENCE.md](REFERENCE.md); the common ones:
+
 | Param | Default | Meaning |
 |---|---|---|
 | `-Char` | (required) | dataset folder name + LoRA output name |
@@ -349,6 +358,9 @@ One command per character, or the whole roster:
 | `-Batch` | 2 | batch size (raise if you have VRAM headroom) |
 | `-TrainTextEncoder` | off | also train the text encoder (stronger, more VRAM) |
 | `-SkipCaption` | off | use existing captions, don't re-tag |
+| `-Profile` | (none) | apply a `train.toml` preset bundle: `fast` \| `quality` \| `complex` |
+| `-DryRun` | off | print the resolved params + exact `accelerate` command + dataset TOML, train nothing |
+| *(more)* | `train.toml` | `-Lr`/`-UnetLr`/`-TextEncoderLr`, `-Scheduler`, `-MinSnr`, `-Resolution`, `-SavePrecision`, `-SaveEveryNEpochs`, `-BucketMin`/`-BucketMax` — see [REFERENCE.md](REFERENCE.md) |
 
 **Optimizer choice (community-consensus vs our defaults).** Several Illustrious guides report Prodigy
 can "burn" / not suit IL well and prefer **AdamW** or **AdaFactor** with explicit LRs (UNet ~3e-4, TE
@@ -358,7 +370,8 @@ default** (auto-LR, no extra deps) and expose `-Optimizer adamw|adafactor` to A/
 exact wheel pain Prodigy avoids). There is also **no `-ClipSkip`**: `sdxl_train_network.py` ignores
 clip_skip for SDXL (it warns and no-ops) — the inference-side CLIP skip −2 is unrelated to training.
 
-### sd-scripts settings (baked into the launch)
+### sd-scripts settings (resolved from `train.toml [defaults]`)
+These are the `train.toml [defaults]` (override per the precedence above; see [REFERENCE.md](REFERENCE.md)):
 LoRA `networks.lora` dim 16 / alpha 8 · optimizer **Prodigy** (default) lr 1.0 (`decouple`,
 `weight_decay=0.01`, `d_coef=$DCoef`, `use_bias_correction`, `safeguard_warmup`) — selectable via
 `-Optimizer` (adamw / adafactor at LR 3e-4) · `cosine` ·
@@ -438,18 +451,24 @@ the model's style.
 
 ```
 tools/
-  il_graphs/config.py         CHARACTERS roster, base ckpt/VAE/sampler, REF_SUFFIX
+  il_graphs/characters.toml   the roster (one [table] per character) — edit here to add a character
+  il_graphs/config.py         loads characters.toml; base ckpt/VAE/sampler, REF_SUFFIX
   il_graphs/graphs.py         build_dataset_edit() — IL_DatasetEdit_<name> (Qwen-Image-Edit)
   il_graphs/templates.py      node schemas (harvest + EXTRA_TEMPLATES incl. the Qwen-Edit nodes)
-  build_il_graphs.py          regenerate all IL_* workflows + roster.json
+  build_il_graphs.py          regenerate all IL_* workflows + roster.json (+ validates them)
+  validate_workflow.py        pre-flight a workflow (models/wildcards/embeddings + rules)
   sd-scripts/                 kohya trainer (submodule)
+  tests/                      pytest suite (build/golden/cfg/prep/train_config/docs)
   lora_train/
     README.md                 this file
+    REFERENCE.md              every command + the full training-param matrix
+    train.toml                training hyperparams: [defaults] / [profiles.*] / [train.<char>]
+    train_config.py           resolves train.toml (defaults < per-char < profile < CLI) -> JSON
     .venv/                    trainer venv (uv, py3.11, torch cu128)   [gitignored]
     roster.json               name/trigger/id/outfit/prune manifest   [gitignored, generated]
     .cache/<char>.toml        generated dataset configs               [gitignored]
-    prep_captions.py          trigger-prepend + auto-bake outfit (tolerant) + extra prune
-    train_lora.ps1            caption + train one character
+    prep_captions.py          trigger-prepend + auto-bake outfit (tolerant) + extra prune (--dry-run)
+    train_lora.ps1            caption + train one character (-Profile / -DryRun / param flags)
     train_all.ps1             train the whole roster
     verify_env.py             venv sanity check
 custom_nodes/ComfyUI-Impact-Pack/wildcards/   framing/angle/pose/expression/background/lighting .txt

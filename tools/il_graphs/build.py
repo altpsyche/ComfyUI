@@ -4,6 +4,7 @@ Run:  python tools/build_il_graphs.py   (or:  python -m il_graphs.build)
 """
 from __future__ import annotations
 import json
+import sys
 from .config import OUT, ROOT, CHARACTERS, SEED
 from .docs import md
 from .graphs import (build_base, build_refine, build_guided, build_studio,
@@ -55,10 +56,18 @@ def main():
     for name, g in graphs.items():
         (OUT / f"{name}.json").write_text(json.dumps(g, indent=2), encoding="utf-8")
         rlist = "".join(f'    "{n}",\n' for n in req[name])
+        # The CFG floor is now actually enforced (validate_workflow checks KSampler/USDU/detailer cfg,
+        # not just CFGGuider). LCM and the Qwen-Edit dataset graphs intentionally run a low CFG
+        # (LCM / Lightning), so they get NO min_cfg rule; everything else keeps the >= 5 hard floor.
+        low_cfg = name == "IL_LCM" or name.startswith("IL_DatasetEdit")
+        cfg_rules = "" if low_cfg else "min_cfg = 5.0\nmax_cfg = 12.0\n"
+        cfg_comment = ("# Low CFG by design (LCM / Lightning) — no min_cfg rule here.\n" if low_cfg
+                       else "# Hard floor: CFG >= 5 on every sampler (KSampler / USDU / detailers).\n")
         (OUT / f"{name}.rules.toml").write_text(
             f"# Validator rules for {name}.json — auto-loaded by tools/validate_workflow.py\n"
             f"# Hard requirement for amanatsu/oneObsession Illustrious: CLIP skip -2.\n"
-            f"clip_skip = -2\nmin_cfg = 5.0\nmax_cfg = 12.0\nrequire_nodes = [\n{rlist}]\n",
+            f"{cfg_comment}"
+            f"clip_skip = -2\n{cfg_rules}require_nodes = [\n{rlist}]\n",
             encoding="utf-8")
         (OUT / f"{name}.md").write_text(md(name, g), encoding="utf-8")
         print(f"wrote {name}.json: {len(g['nodes'])} nodes, {len(g['links'])} links  (+ rules.toml + md)")
@@ -75,6 +84,46 @@ def main():
             removed.append(jf.stem)
     if removed:
         print(f"removed stale: {', '.join(sorted(removed))}")
+
+    # Prune stale dataset .toml caches (character removed/renamed) so train_lora can't reuse a config
+    # for a character that no longer exists. The roster (CHARACTERS) is the source of truth.
+    cache_dir = ROOT / "tools/lora_train/.cache"
+    if cache_dir.exists():
+        valid = set(CHARACTERS)
+        stale_cache = [tf for tf in cache_dir.glob("*.toml") if tf.stem not in valid]
+        for tf in stale_cache:
+            tf.unlink()
+        if stale_cache:
+            print(f"removed stale .cache: {', '.join(sorted(t.stem for t in stale_cache))}")
+
+    # --- build-time validation guardrail ---
+    # Validate every emitted graph against its own rules + wildcards. Missing MODEL files are a warning
+    # (a fresh checkout won't have the multi-GB downloads); rule and wildcard violations hard-fail the
+    # build so a broken graph can't slip through silently. Skip with --no-validate.
+    if "--no-validate" not in sys.argv:
+        import io
+        import contextlib
+        try:
+            from validate_workflow import validate
+        except ImportError:                       # support `python -m il_graphs.build`
+            sys.path.insert(0, str(ROOT / "tools"))
+            from validate_workflow import validate
+        print()
+        failed = []
+        for name in graphs:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = validate(OUT / f"{name}.json", require_models=False, require_wildcards=True)
+            if rc == 0:
+                print(f"[validate] {name} ... OK")
+            else:
+                print(f"[validate] {name} ... FAIL")
+                print(buf.getvalue().rstrip())
+                failed.append(name)
+        if failed:
+            print(f"\n[x] validation failed: {', '.join(failed)}")
+            sys.exit(1)
+        print(f"[+] {len(graphs)} graphs built + validated")
 
 
 if __name__ == "__main__":

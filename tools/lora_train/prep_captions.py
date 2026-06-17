@@ -99,6 +99,8 @@ def main():
                          "tags for a harder face lock.")
     ap.add_argument("--keep", default="",
                     help="comma-separated tags to protect from pruning (stay promptable).")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print the tags that would be pruned per file, without writing anything.")
     args = ap.parse_args()
 
     phrases, nouns = build_lock(args.outfit, args.prune)
@@ -112,12 +114,17 @@ def main():
     changed = removed_total = 0
     for f in txts:
         tags = [t.strip() for t in f.read_text(encoding="utf-8").split(",") if t.strip()]
+        pruned = [t for t in tags if t.lower() != trig and should_prune(t, phrases, nouns, keep)]
         kept = [t for t in tags if t.lower() != trig and not should_prune(t, phrases, nouns, keep)]
-        removed_total += len(tags) - len(kept)
-        f.write_text(", ".join([args.trigger] + kept), encoding="utf-8")  # trigger first (keep_tokens=1)
+        removed_total += len(pruned)
+        if args.dry_run:
+            print(f"  {f.name}: prune {pruned}" if pruned else f"  {f.name}: (nothing to prune)")
+        else:
+            f.write_text(", ".join([args.trigger] + kept), encoding="utf-8")  # trigger first (keep_tokens=1)
         changed += 1
-    print(f"prepped {changed} captions in {folder} (trigger={args.trigger!r}, "
-          f"lock nouns={sorted(nouns)}, removed {removed_total} tag instances)")
+    verb, rverb = ("would prep", "would remove") if args.dry_run else ("prepped", "removed")
+    print(f"{verb} {changed} captions in {folder} (trigger={args.trigger!r}, "
+          f"lock nouns={sorted(nouns)}, {rverb} {removed_total} tag instances)")
 
 
 if __name__ == "__main__":

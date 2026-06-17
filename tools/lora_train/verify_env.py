@@ -51,12 +51,33 @@ check("onnxruntime (WD14 tagger)", onnx_ok)
 
 
 def dataset_cfg():
+    # Parse a dataset config shaped exactly like the one train_lora.ps1 generates into .cache/<char>.toml.
+    # Deliberately uses the third-party `toml` package (NOT stdlib tomllib): that is the reader sd-scripts
+    # itself uses, so this proves a real training dependency is installed and parses the config we feed it.
     import toml
-    d = toml.load(pathlib.Path(__file__).parent / "dataset_charA.toml")
+    sample = (
+        '[general]\nshuffle_caption = true\nkeep_tokens = 1\ncaption_extension = ".txt"\n'
+        '[[datasets]]\nresolution = 1024\nbatch_size = 2\nenable_bucket = true\n'
+        'min_bucket_reso = 768\nmax_bucket_reso = 1280\nbucket_reso_steps = 64\n'
+        '  [[datasets.subsets]]\n  image_dir = "x"\n  num_repeats = 10\n'
+    )
+    d = toml.loads(sample)
     assert d["datasets"][0]["resolution"] == 1024
 
 
-check("dataset_charA.toml parses", dataset_cfg)
+check("dataset config TOML parses (sd-scripts 'toml' reader)", dataset_cfg)
+
+
+def dataset_wildcards():
+    # The IL_DatasetEdit generator drives variety through these six wildcard files; without them the
+    # edit instruction emits literal __pose__ tokens. Repo root = three levels up from this file.
+    wdir = pathlib.Path(__file__).resolve().parents[2] / "custom_nodes/ComfyUI-Impact-Pack/wildcards"
+    need = ["angle", "pose", "expression", "framing", "background", "lighting"]
+    missing = [w for w in need if not (wdir / f"{w}.txt").exists()]
+    assert not missing, f"missing dataset wildcards in {wdir}: {missing}"
+
+
+check("dataset wildcards present (angle/pose/expression/framing/background/lighting)", dataset_wildcards)
 
 print("\nRESULT:", "ALL GOOD" if ok else "SOME CHECKS FAILED")
 sys.exit(0 if ok else 1)

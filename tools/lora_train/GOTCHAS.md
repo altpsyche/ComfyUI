@@ -34,7 +34,15 @@ tried — check before reverting.
   a fresh clone won't have them — re-create them if you set up elsewhere. See [WILDCARDS.md](WILDCARDS.md).
 - **"Same face" across outfit variants is not pixel-identical.** A `like:` variant re-renders its own hero
   with the new outfit in the prompt, and trains a separate LoRA — faces are recognizably the same person.
-  Pin `hero_seed` + a tight `id` to maximize the match. (Full note: README §5 / config.py comments.)
+  Pin `hero_seed` + a tight `id` to maximize the match. (Full note: README §5 / characters.toml comments.)
+- **Training defaults live in `train.toml`, not the .ps1.** Don't expect `dim 16` / `steps 1500` hardcoded
+  in `train_lora.ps1`'s `param()` block — they resolve from `train.toml [defaults]`. **Precedence (highest
+  wins): explicit CLI flag > `-Profile` > `[train.<char>]` > `[defaults]`.** If a value "won't take
+  effect," something higher in that chain is overriding it — run `train_lora.ps1 -Char <c> -DryRun` to
+  print the resolved set + the exact `accelerate` command before committing to a multi-hour train.
+- **The Blackwell/16 GB safety toggles are now exposed in `train.toml` (`sdpa`, `no_half_vae`, bf16,
+  `gradient_checkpointing`, latent caching).** Exposed ≠ "tune freely" — they default ON for a reason
+  (sm_120 wheel pain, black VAE tiles, 16 GB headroom). Don't flip them off without one.
 
 ## Why the locked settings are what they are (don't churn without a reason)
 
@@ -50,6 +58,11 @@ tried — check before reverting.
 ## If you change the generator
 
 All workflow changes go through `tools/il_graphs/` (edit the Python, never the generated JSON/md) then
-`python tools/build_il_graphs.py`. New custom nodes = git submodules. Validate with
-`python tools/validate_workflow.py user/default/workflows/<graph>.json`. Stale/renamed dataset graphs are
-pruned automatically on regenerate.
+`python tools/build_il_graphs.py`. The roster itself is data — `tools/il_graphs/characters.toml`, not
+Python. New custom nodes = git submodules. **The build now validates every graph it writes** and
+**hard-fails on a rule (CLIP skip ≠ −2, CFG below the floor) or a missing wildcard** (missing model
+files are only a warning); skip with `--no-validate`. Standalone:
+`python tools/validate_workflow.py user/default/workflows/<graph>.json`. Stale/renamed dataset graphs —
+and stale `.cache/*.toml` for removed characters — are pruned automatically on regenerate.
+There are tests now: `cd tools && python -m pytest tests/ -q` (golden-locks the graph JSON, so a
+generator change that alters output fails until you re-snapshot on purpose).

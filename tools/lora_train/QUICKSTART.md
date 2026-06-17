@@ -1,6 +1,6 @@
 # Character LoRA — quick start
 
-Terse loop. Full detail: [README.md](README.md).
+Terse loop. Full detail: [README.md](README.md). Every knob in one table: [REFERENCE.md](REFERENCE.md).
 
 ## Once per machine
 
@@ -11,12 +11,11 @@ powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # Qwen-
 
 ## New character
 
-1. Add an entry to `CHARACTERS` in [`tools/il_graphs/config.py`](../il_graphs/config.py):
-   ```python
-   "aria": {
-       "id": "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles",  # identity only, no clothes
-       "outfit": "tennis uniform, teal and white tennis dress, white visor, white shoes",  # optional, auto-locked
-   },
+1. Add a table to [`tools/il_graphs/characters.toml`](../il_graphs/characters.toml) (data file — no Python):
+   ```toml
+   [aria]
+   id = "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"   # identity only, no clothes
+   outfit = "tennis uniform, teal and white tennis dress, white visor, white shoes"  # optional, auto-locked
    ```
 2. Regenerate:
    ```powershell
@@ -43,17 +42,19 @@ XY-plot of strength {0.5, 0.75, 0.9} in IL_1_Base.
 
 ## Same character, multiple outfits
 
-Add a `like` entry per costume -> separate LoRA, same facial identity:
+Add a `like` table per costume -> separate LoRA, same facial identity:
 
-```python
-"aria_gala": { "like": "aria", "outfit": "elegant emerald evening gown, long gloves, high heels" },
+```toml
+[aria_gala]
+like = "aria"
+outfit = "elegant emerald evening gown, long gloves, high heels"
 ```
 
 `like` inherits `aria`'s `id` + `hero_seed`; you write only the new `outfit`. Regenerate -> generate
 `IL_DatasetEdit_aria_gala` -> train. Trigger `aria_galachar`.
 
 **For the closest face match:** after rerolling `aria`'s Hero Seed to a face you like, write that seed
-into the parent entry as `hero_seed: <value>`, regenerate, *then* the variants inherit it. (Faces are
+into the parent table as `hero_seed = <value>`, regenerate, *then* the variants inherit it. (Faces are
 recognizably the same person, not pixel-identical -- the outfit changes the render and each is its own LoRA.)
 
 ## Common knobs
@@ -61,14 +62,20 @@ recognizably the same person, not pixel-identical -- the outfit changes the rend
 | Want | Do |
 |---|---|
 | Harder face lock | `train_lora.ps1 -Char aria -TrainTextEncoder` or `-Dim 32 -Alpha 16` |
-| More capacity | `-Dim 32 -Alpha 16` |
+| More capacity | `-Dim 32 -Alpha 16` (or `-Profile complex`) |
+| Preset bundle | `-Profile fast\|quality\|complex` (defined in `train.toml`) |
+| Preview the exact command, train nothing | `-DryRun` |
+| Persist per-char training params | a `[train.<char>]` table in `train.toml` |
 | LoRA overcooked | `-DCoef 0.8` or `-Optimizer adamw` |
 | OOM / too slow | `install_qwen_edit.ps1 -Quant Q4_K_M` |
 | More pose/angle variety | raise multiple-angles LoRA toward 1.0 in `build_dataset_edit()`; add lines to `wildcards/pose.txt` |
 | Don't re-tag on retrain | `train_lora.ps1 -Char aria -SkipCaption` |
+| Preview caption pruning | `prep_captions.py <dir> --trigger <t> --outfit "..." --dry-run` |
+
+All training knobs + precedence: **[REFERENCE.md](REFERENCE.md)**. Tune them in `train.toml` (no code edit).
 
 Wildcard `.txt` edits (`custom_nodes/ComfyUI-Impact-Pack/wildcards/`) are live -- reload the graph, no
-regenerate. Config/`id`/`outfit`/`like` edits need `python tools/build_il_graphs.py` + re-open the graph.
+regenerate. `characters.toml` (`id`/`outfit`/`like`) edits need `python tools/build_il_graphs.py` + re-open the graph.
 
 Steering pose/angle/scene variety: **[WILDCARDS.md](WILDCARDS.md)**.
 Before changing the pipeline: **[GOTCHAS.md](GOTCHAS.md)** (dead ends + traps — don't re-do them).

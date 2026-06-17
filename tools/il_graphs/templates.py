@@ -2,6 +2,11 @@ from __future__ import annotations
 import json
 from .config import SRC, SEED
 
+if not SRC.exists():
+    raise RuntimeError(
+        f"harvest source workflow not found: {SRC}\n"
+        f"il_graphs harvests node templates from it — run build_il_graphs from the repo root and "
+        f"ensure MainGraphv10.json exists under user/default/workflows/.")
 _src = json.loads(SRC.read_text(encoding="utf-8"))
 TEMPLATES: dict[str, dict] = {}
 for _n in _src["nodes"]:
@@ -59,6 +64,9 @@ EXTRA_TEMPLATES: dict[str, dict] = {
         size=(400, 280), cnr="ComfyUI-Impact-Pack"),
     # Impact-Pack wildcard PROCESSOR: expands __wildcards__ -> a plain STRING (no model/clip).
     # required: wildcard_text, populated_text, mode, seed(+control), "Select to add Wildcard".
+    # NB: `mode` carries a populate/fixed string value ("populate"); the "BOOLEAN" slot-type label
+    # below is cosmetic (mode is a pure widget, never linked) and is left as-is so generated graphs
+    # stay byte-stable. ImpactWildcardEncode labels the same field "COMBO" — both load fine.
     "ImpactWildcardProcessor": _tpl("ImpactWildcardProcessor",
         [_io("wildcard_text", "STRING", widget=True), _io("populated_text", "STRING", widget=True),
          _io("mode", "BOOLEAN", widget=True), _io("seed", "INT", widget=True),
