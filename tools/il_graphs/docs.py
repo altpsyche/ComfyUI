@@ -54,6 +54,18 @@ DOCS = {
     "Quick composition / prompt checks (~4x faster, lower quality). Switch to a full tier for finals.",
     ["Edit prompts. Queue."],
     ["KSampler: lcm / sgm_uniform / 8 steps / cfg 1.5. lcm-lora ON in the loader."]),
+  "IL_XYPlot": ("Pick-the-best-epoch grid (efficiency-nodes XY Plot). Renders the same prompt + seed "
+    "across a batch of LoRA files (the saved epochs) crossed with a weight sweep, so you can compare "
+    "likeness vs over-bake at a glance. Generic — works for any trained character.",
+    "After training, to choose which saved epoch and which LoRA strength to keep.",
+    ["Copy the epochs to compare into models/loras/_xyplot/ (e.g. <char>_v1.safetensors + a few -0000NN).",
+     "Add the character's trigger word (e.g. ursachar) to the Efficient Loader's positive prompt.",
+     "Keep the seed FIXED, set the Y weight sweep (default 0.5->0.9 / 3 cols), Queue once -> output/xyplot/.",
+     "Pick the (epoch, weight) cell with the best likeness that isn't over-cooked / over-saturated."],
+    ["X axis = LoRA files in models/loras/_xyplot/ (path relative to the ComfyUI folder; set absolute if elsewhere).",
+     "Y axis = LoRA weight, swept Y_first->Y_last over Y_batch_count columns.",
+     "KSampler (Efficient): euler_ancestral / normal / 30 / cfg 5 — matches IL_1_Base.",
+     "CLIP skip -2 is set in the Efficient Loader widget (no separate CLIPSetLastLayer node)."]),
   "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF) -- SELF-CONTAINED, two "
     "stages. STAGE 1 renders ONE hero from this character's id tags in your Illustrious checkpoint "
     "(fixed Hero Seed + HERO preview). STAGE 2 re-poses that hero into many varied shots holding "
@@ -108,11 +120,15 @@ def md(name, g):
               "hand detailer (and the face-inpaint node in Max) have their own prompt nodes."]
 
     low_cfg = name == "IL_LCM" or name.startswith("IL_DatasetEdit")
-    cfg_line = ("CLIP skip -2 enforced by the rules file (CFG is intentionally low here for "
-                "LCM / Lightning, so no CFG floor is applied)."
-                if low_cfg else
-                "CLIP skip -2 and a CFG >= 5 floor (on every sampler — KSampler / USDU / detailers) "
-                "enforced by the rules file.")
+    if name == "IL_XYPlot":
+        cfg_line = ("A CFG >= 5 floor (on the Efficient KSampler) is enforced by the rules file; "
+                    "CLIP skip -2 is set in the Efficient Loader widget.")
+    elif low_cfg:
+        cfg_line = ("CLIP skip -2 enforced by the rules file (CFG is intentionally low here for "
+                    "LCM / Lightning, so no CFG floor is applied).")
+    else:
+        cfg_line = ("CLIP skip -2 and a CFG >= 5 floor (on every sampler — KSampler / USDU / detailers) "
+                    "enforced by the rules file.")
     s += ["", "## Validate", "```",
           f"python tools/validate_workflow.py user/default/workflows/{name}.json", "```", "",
           f"Default checkpoint **{CKPT.split('.')[0]}** (swap in the Checkpoint node). "

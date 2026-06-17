@@ -1,5 +1,16 @@
 """Unit tests for the caption-pruning logic (pure functions, no filesystem)."""
+import subprocess
+import sys
+from pathlib import Path
+
 import prep_captions as P
+
+PREP = Path(P.__file__).resolve()
+
+
+def _run(tmp, *args):
+    return subprocess.run([sys.executable, str(PREP), str(tmp), *args],
+                          capture_output=True, text=True)
 
 
 def test_norm_plural_fold():
@@ -32,7 +43,41 @@ def test_structural_tags_never_locked():
     assert "1girl" not in phrases and "solo" not in phrases
 
 
+def test_underscored_wd14_tags_are_matched():
+    # WD14 emits underscored tags (crop_top); the outfit string uses spaces. Pruning must still fire,
+    # else the outfit never bakes into the trigger and stays promptable.
+    phrases, nouns = P.build_lock("crop top, ripped denim shorts, open shirt", "")
+    assert P.should_prune("crop_top", phrases, nouns, set())
+    assert P.should_prune("denim_shorts", phrases, nouns, set())
+    assert P.should_prune("open_shirt", phrases, nouns, set())
+    assert P.should_prune("white_shirt", phrases, nouns, set())      # shirt -> top cluster
+    assert not P.should_prune("looking_at_viewer", phrases, nouns, set())  # PROTECT, underscored
+
+
 def test_trigger_not_pruned_by_headnoun():
     # a non-outfit tag with an unrelated head noun stays promptable
     phrases, nouns = P.build_lock("tennis uniform", "")
     assert not P.should_prune("green eyes", phrases, nouns, set())
+
+
+# --- the zero-bake guard (the silent-failure mode) ---
+
+def test_strict_fails_on_zero_bake(tmp_path):
+    (tmp_path / "a.txt").write_text("tennis_uniform, visor, 1girl", encoding="utf-8")
+    r = _run(tmp_path, "--trigger", "zz", "--outfit", "ballgown, tiara", "--strict")
+    assert r.returncode == 2, (r.returncode, r.stderr)
+    assert "did NOT" in r.stderr
+
+
+def test_warn_only_without_strict(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("tennis_uniform, visor, 1girl", encoding="utf-8")
+    r = _run(tmp_path, "--trigger", "zz", "--outfit", "ballgown")
+    assert r.returncode == 0                      # warns but does not fail
+    assert f.read_text(encoding="utf-8").startswith("zz")   # still prepped
+
+
+def test_strict_passes_when_outfit_matches(tmp_path):
+    (tmp_path / "a.txt").write_text("tennis_uniform, visor, 1girl", encoding="utf-8")
+    r = _run(tmp_path, "--trigger", "zz", "--outfit", "tennis uniform, visor", "--strict")
+    assert r.returncode == 0, r.stderr            # underscored tags matched -> baked -> ok

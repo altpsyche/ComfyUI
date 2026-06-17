@@ -164,12 +164,13 @@ def check_rules(g: dict, rules: dict) -> list[str]:
     # family drives cfg through KSampler / UltimateSDUpscale / detailers, so check those too or the
     # rule is vacuous. Indices verified against the live node widget order.
     CFG_WIDGET_IDX = {
-        "CFGGuider": 0,          # [cfg]
-        "KSampler": 3,           # [seed, control, steps, CFG, sampler, scheduler, denoise]
-        "KSamplerAdvanced": 4,   # [add_noise, seed, control, steps, CFG, sampler, scheduler, ...]
-        "UltimateSDUpscale": 4,  # [upscale_by, seed, control, steps, CFG, sampler, scheduler, denoise, ...]
-        "FaceDetailer": 6,       # [guide, guide_for, max, seed, control, steps, CFG, sampler, ...]
-        "SEGSDetailer": 6,       # [guide, guide_for, max, seed, control, steps, CFG, sampler, ...]
+        "CFGGuider": 0,            # [cfg]
+        "KSampler": 3,             # [seed, control, steps, CFG, sampler, scheduler, denoise]
+        "KSamplerAdvanced": 4,     # [add_noise, seed, control, steps, CFG, sampler, scheduler, ...]
+        "KSampler (Efficient)": 3, # [seed, control, steps, CFG, sampler, scheduler, denoise, preview, vae_decode]
+        "UltimateSDUpscale": 4,    # [upscale_by, seed, control, steps, CFG, sampler, scheduler, denoise, ...]
+        "FaceDetailer": 6,         # [guide, guide_for, max, seed, control, steps, CFG, sampler, ...]
+        "SEGSDetailer": 6,         # [guide, guide_for, max, seed, control, steps, CFG, sampler, ...]
     }
     min_cfg = rules.get("min_cfg")
     max_cfg = rules.get("max_cfg")

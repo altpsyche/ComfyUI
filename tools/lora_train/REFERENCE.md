@@ -31,7 +31,7 @@ the full narrative in [README.md](README.md); traps in [GOTCHAS.md](GOTCHAS.md).
 | `tools\lora_train\train_lora.ps1 -Char <c>` | Caption + derive repeats + train ONE LoRA. | see parameter matrix below; `-DryRun` |
 | `tools\lora_train\train_all.ps1` | `train_lora` for every roster character with a dataset. | passes extra flags through |
 | `python tools/lora_train/train_config.py --char <c>` | Print the resolved training params as JSON (what `train_lora` will use). | `--profile`, `--set key=value` |
-| `python tools/lora_train/prep_captions.py <dir> --trigger <t>` | Prepend trigger + bake outfit tags into captions. | `--outfit`, `--prune`, `--keep`, `--dry-run` |
+| `python tools/lora_train/prep_captions.py <dir> --trigger <t>` | Prepend trigger + bake outfit tags into captions. | `--outfit`, `--prune`, `--keep`, `--dry-run`, `--strict` (fail on zero-bake) |
 | `tools\lora_train\.venv\Scripts\python.exe tools\lora_train\verify_env.py` | Verify the trainer venv (GPU bf16, sd-scripts, tagger, dataset TOML parse, wildcards). | — |
 | `scripts\install_qwen_edit.ps1` | Download the Qwen-Image-Edit stack. | `-Quant Q4_K_M`, `-SkipAnglesLora` |
 
@@ -71,7 +71,15 @@ stay assembled in `train_lora.ps1`.
 
 **Non-param flags:** `-Char` (required; dataset folder + LoRA name), `-Trigger` / `-Outfit` / `-Prune`
 (default from `roster.json`), `-Base` (checkpoint), `-SkipCaption` (reuse captions), `-Profile` (preset
-name), `-DryRun` (preview only).
+name), `-DryRun` (preview only), `-Force` (train even if the outfit baked nothing — see the guard below).
+
+### Outfit-bake guard
+
+`train_lora` aborts if an outfit/prune was given but **nothing** matched the captions — i.e. the outfit
+didn't bake into the trigger (the silent-failure mode: a green run, a wrong LoRA). Usual cause is a
+**tagger-vocabulary mismatch** — the outfit must use the words WD14 actually writes (e.g. `thighhighs`,
+not `stockings`; `panties`, not `thong underwear`). Open a dataset `.txt` to see the real tags. Pass
+`-Force` to train anyway, or run `prep_captions … --dry-run` to preview what would prune.
 
 ## Profiles
 
@@ -94,6 +102,21 @@ Per-character persistent overrides go in `train.toml`:
 dim = 32
 alpha = 16
 ```
+
+## After training: pick the best epoch (`IL_XYPlot`)
+
+Training saves one LoRA per epoch (`<char>_v1-0000NN` + the final `<char>_v1`). None is guaranteed
+best — the **`IL_XYPlot`** workflow renders the same prompt/seed across a grid of **epoch × LoRA
+strength** so you can eyeball the winner in one queue:
+
+1. Copy the epochs to compare into `models/loras/_xyplot/` (e.g. `ursa_v1.safetensors` + a few `-0000NN`).
+2. Open `IL_XYPlot`, add the trigger word (`ursachar`) to the Efficient Loader's positive prompt.
+3. Keep the seed fixed; the Y axis sweeps strength 0.5→0.9 (3 columns by default). Queue once → `output/xyplot/`.
+4. Keep the `(epoch, strength)` cell with the best likeness that isn't over-cooked. Load that file at
+   that strength in any IL graph's LoRA bank.
+
+Built on the **efficiency-nodes** pack. The LoRA-batch path is relative to the ComfyUI folder; set an
+absolute path if your epochs live elsewhere.
 
 ## Validation guardrail
 

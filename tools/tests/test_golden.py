@@ -7,9 +7,14 @@ from pathlib import Path
 
 GOLDEN = Path(__file__).resolve().parent / "golden"
 
+# IL_XYPlot is intentionally NOT golden-locked: it bakes an absolute, machine-specific LoRA-batch path
+# (required by the efficiency-nodes LoRA-Batch loader), so byte-equality isn't portable. test_build
+# still asserts it is emitted and validates.
+EXCLUDE = {"IL_XYPlot"}
+
 
 def test_graphs_byte_identical_to_golden(built):
-    goldens = sorted(GOLDEN.glob("*.json"))
+    goldens = sorted(gf for gf in GOLDEN.glob("*.json") if gf.stem not in EXCLUDE)
     assert goldens, "no golden fixtures captured"
     for gf in goldens:
         live = built / gf.name

@@ -9,13 +9,14 @@ from .config import OUT, ROOT, CHARACTERS, SEED
 from .docs import md
 from .graphs import (build_base, build_refine, build_guided, build_studio,
                      build_max, build_ipadapter, build_pose, build_lcm,
-                     build_dataset_edit)
+                     build_xyplot, build_dataset_edit)
 
 
 def main():
     graphs = {"IL_1_Base": build_base(), "IL_2_Refine": build_refine(), "IL_3_Guided": build_guided(),
               "IL_4_Studio": build_studio(), "IL_5_Max": build_max(),
-              "IL_IPAdapter": build_ipadapter(), "IL_Pose": build_pose(), "IL_LCM": build_lcm()}
+              "IL_IPAdapter": build_ipadapter(), "IL_Pose": build_pose(), "IL_LCM": build_lcm(),
+              "IL_XYPlot": build_xyplot()}
     base_req = ["CheckpointLoaderSimple", "CLIPSetLastLayer", "KSampler", "VAEDecode", "SaveImage"]
     det_req = base_req + ["UltimateSDUpscale", "FaceDetailer"]
     req = {"IL_1_Base": base_req,
@@ -26,7 +27,9 @@ def main():
                                   "InpaintCropImproved", "InpaintStitchImproved"],
            "IL_IPAdapter": det_req + ["IPAdapterAdvanced"],
            "IL_Pose": det_req + ["ControlNetApplyAdvanced", "OpenposeEditorNode"],
-           "IL_LCM": base_req}   # cfg 1.5 ok: min_cfg rule only checks CFGGuider, LCM uses KSampler
+           "IL_LCM": base_req,   # cfg 1.5 ok: min_cfg rule omitted for LCM (low CFG by design)
+           "IL_XYPlot": ["Efficient Loader", "KSampler (Efficient)", "XY Plot",
+                         "XY Input: LoRA Plot", "SaveImage"]}
     # Qwen-Image-Edit graph: no checkpoint/clip-skip (clip_skip & min_cfg rules are vacuous here --
     # no CLIPSetLastLayer, no CFGGuider; KSampler cfg 1.0 is intended for Lightning).
     edit_req = ["CheckpointLoaderSimple", "UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
@@ -60,14 +63,18 @@ def main():
         # not just CFGGuider). LCM and the Qwen-Edit dataset graphs intentionally run a low CFG
         # (LCM / Lightning), so they get NO min_cfg rule; everything else keeps the >= 5 hard floor.
         low_cfg = name == "IL_LCM" or name.startswith("IL_DatasetEdit")
+        no_clipnode = name == "IL_XYPlot"   # uses Efficient Loader's clip_skip widget, not a CLIPSetLastLayer
         cfg_rules = "" if low_cfg else "min_cfg = 5.0\nmax_cfg = 12.0\n"
+        cs_rule = "" if no_clipnode else "clip_skip = -2\n"
+        cs_comment = ("# CLIP skip is set in the Efficient Loader widget (-2), no CLIPSetLastLayer to check.\n"
+                      if no_clipnode else
+                      "# Hard requirement for amanatsu/oneObsession Illustrious: CLIP skip -2.\n")
         cfg_comment = ("# Low CFG by design (LCM / Lightning) — no min_cfg rule here.\n" if low_cfg
                        else "# Hard floor: CFG >= 5 on every sampler (KSampler / USDU / detailers).\n")
         (OUT / f"{name}.rules.toml").write_text(
             f"# Validator rules for {name}.json — auto-loaded by tools/validate_workflow.py\n"
-            f"# Hard requirement for amanatsu/oneObsession Illustrious: CLIP skip -2.\n"
-            f"{cfg_comment}"
-            f"clip_skip = -2\n{cfg_rules}require_nodes = [\n{rlist}]\n",
+            f"{cs_comment}{cfg_comment}"
+            f"{cs_rule}{cfg_rules}require_nodes = [\n{rlist}]\n",
             encoding="utf-8")
         (OUT / f"{name}.md").write_text(md(name, g), encoding="utf-8")
         print(f"wrote {name}.json: {len(g['nodes'])} nodes, {len(g['links'])} links  (+ rules.toml + md)")

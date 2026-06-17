@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import re
+import sys
 
 
 # garment head-nouns get baked; these expression/state/view tags are protected even if a head-noun
@@ -79,12 +80,15 @@ def build_lock(outfit: str, extra_prune: str):
 
 
 def should_prune(tag: str, phrases: set, nouns: set, keep: set) -> bool:
-    t = tag.lower()
-    if t in keep or t in PROTECT:
+    # WD14 writes underscored tags (crop_top, open_shirt, looking_at_viewer); the outfit / keep / PROTECT
+    # sets are space-form. Normalize underscores -> spaces so the phrase + head-noun match actually fires
+    # (otherwise NOTHING is baked and the outfit stays promptable instead of folding into the trigger).
+    t = tag.lower().replace("_", " ").strip()
+    if not t or t in keep or t in PROTECT:
         return False
     if t in phrases:
         return True
-    return _norm(t.split()[-1]) in nouns if t else False
+    return _norm(t.split()[-1]) in nouns
 
 
 def main():
@@ -101,6 +105,10 @@ def main():
                     help="comma-separated tags to protect from pruning (stay promptable).")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the tags that would be pruned per file, without writing anything.")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit non-zero (2) if --outfit/--prune was given but NOTHING matched -- i.e. the "
+                         "outfit failed to bake (usually a tagger-vocabulary mismatch). train_lora passes "
+                         "this so a zero-bake aborts the run instead of silently training a bad LoRA.")
     args = ap.parse_args()
 
     phrases, nouns = build_lock(args.outfit, args.prune)
@@ -125,6 +133,18 @@ def main():
     verb, rverb = ("would prep", "would remove") if args.dry_run else ("prepped", "removed")
     print(f"{verb} {changed} captions in {folder} (trigger={args.trigger!r}, "
           f"lock nouns={sorted(nouns)}, {rverb} {removed_total} tag instances)")
+
+    # Semantic guard: an outfit/prune was requested but NOTHING matched -> the outfit did NOT bake into
+    # the trigger (it stays promptable). This is the silent failure mode (a green run, a bad LoRA), so
+    # shout about it -- and under --strict, fail so the trainer aborts.
+    if (args.outfit.strip() or args.prune.strip()) and removed_total == 0:
+        print(f"[!] WARNING: --outfit/--prune given but NOTHING matched in {folder} -- the outfit did NOT "
+              f"bake into trigger {args.trigger!r}; those garments stay PROMPTABLE, not locked. Most likely "
+              f"the outfit words don't match the WD14 tagger's tags (e.g. 'stockings' vs 'thighhighs', "
+              f"'thong underwear' vs 'panties'). Open a .txt to see the real tags. Lock nouns tried: "
+              f"{sorted(nouns)}.", file=sys.stderr)
+        if args.strict:
+            raise SystemExit(2)
 
 
 if __name__ == "__main__":

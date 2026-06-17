@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .builder import Builder
-from .config import (CKPT, VAE, SEED, NEG, REF_SUFFIX,
+from .config import (ROOT, CKPT, VAE, SEED, POS, NEG, REF_SUFFIX,
                      BASE_SAMPLER, BASE_SCHED, BASE_STEPS, BASE_CFG, NOTE_C, NOTE_BG)
 from .layers import (core, add_upscale, add_detailers, add_face_inpaint,
                      add_bg, add_finish)
@@ -60,6 +60,56 @@ def build_pose():
 def build_lcm():
     b = Builder(); c = core(b, lcm=True)   # fast preview: base only, no heavy post
     add_finish(b, (c["dec"], "IMAGE"), "IL_LCM", x=-760)
+    return b.build()
+
+
+def build_xyplot():
+    """Pick-the-best-epoch tool: an XY grid of LoRA epoch (X) x strength (Y) via efficiency-nodes.
+
+    After training, kohya saves one LoRA per epoch (`<char>_v1-000001..` + the final `<char>_v1`). This
+    graph renders the SAME prompt/seed across a batch of those files crossed with a weight sweep, so you
+    can eyeball which (epoch, strength) is the best likeness without frying. Generic — point it at any
+    character: drop the epochs to compare into models/loras/_xyplot/ and add that character's trigger word.
+    """
+    b = Builder()
+    # The LoRA-Batch loader requires an ABSOLUTE path: it loads each discovered file directly only when
+    # os.path.isabs() is true; a relative path is sent through folder_paths.get_full_path() which returns
+    # None for a nested folder -> "Error loading Lora file ... 'NoneType' has no attribute 'lower'".
+    xy_dir = str(ROOT / "models" / "loras" / "_xyplot")
+    loader = b.add("Efficient Loader",
+                   [CKPT, VAE, -2, "None", 1.0, 1.0, POS, NEG, "none", "comfy", 832, 1216, 1],
+                   pos=(0, 0), title="Efficient Loader (clip skip -2)")
+    # X = a batch of LoRA files (the epochs) from xy_dir, Y = a weight sweep.
+    lplot = b.add("XY Input: LoRA Plot",
+                  ["X: LoRA Batch, Y: LoRA Weight", "None", 1.0, 1.0, 10, xy_dir,
+                   False, "ascending", 0.0, 1.0, 3, 0.5, 0.9],
+                  pos=(0, 440), title="X: epochs (folder)  |  Y: weight 0.5->0.9")
+    xyp = b.add("XY Plot", [10, "False", "Horizontal", "True", "Plot"],
+                pos=(460, 440), title="XY Plot")
+    ks = b.add("KSampler (Efficient)",
+               [SEED, "fixed", BASE_STEPS, BASE_CFG, BASE_SAMPLER, BASE_SCHED, 1.0, "auto", "true"],
+               pos=(460, 0), title="KSampler (Efficient) -> grid")
+    b.link(loader, "MODEL", ks, "model")
+    b.link(loader, "CONDITIONING+", ks, "positive"); b.link(loader, "CONDITIONING-", ks, "negative")
+    b.link(loader, "LATENT", ks, "latent_image"); b.link(loader, "VAE", ks, "optional_vae")
+    b.link(loader, "DEPENDENCIES", xyp, "dependencies")
+    b.link(lplot, "X", xyp, "X"); b.link(lplot, "Y", xyp, "Y")
+    b.link(xyp, "SCRIPT", ks, "script")
+    b.add("Note", [
+        "PICK-THE-BEST-EPOCH GRID (efficiency-nodes XY Plot). One queue = a grid of epoch x strength.\n"
+        "1. Put the epochs you want to compare in  models/loras/_xyplot/  (copy e.g. ursa_v1.safetensors\n"
+        "   + ursa_v1-000008.safetensors + ...). That folder is the X axis; raise X_batch_count if needed.\n"
+        "2. In the Efficient Loader's positive prompt, ADD the character's trigger word (e.g. 'ursachar').\n"
+        "3. Y axis = LoRA weight, swept 0.5 -> 0.9 over 3 columns (edit Y_first/Y_last/Y_batch_count).\n"
+        "4. Keep the seed FIXED so every cell is the same image; Queue ONCE -> output/xyplot/.\n"
+        "Pick the (epoch, weight) cell with the best likeness that isn't over-cooked / over-saturated.\n"
+        "X_batch_path is an ABSOLUTE path (the LoRA-Batch loader requires it); repoint it if your\n"
+        "epochs live elsewhere. Leave the Efficient Loader's lora_name = None (the grid supplies the LoRA)."],
+        pos=(920, 440), title="How to use", color=NOTE_C, bgcolor=NOTE_BG)
+    add_finish(b, (ks, "IMAGE"), "xyplot/epoch_grid", x=920)
+    b.group("Load (clip skip -2)", [loader], "#535")
+    b.group("XY: epochs x strength", [lplot, xyp], "#355")
+    b.group("Sample -> grid", [ks], "#553")
     return b.build()
 
 

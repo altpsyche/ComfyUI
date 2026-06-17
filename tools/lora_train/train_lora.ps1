@@ -31,6 +31,7 @@ param(
     [switch]$TrainTextEncoder,               # also train the TE (drops --network_train_unet_only)
     [switch]$SkipCaption,                    # don't auto-caption (captions already prepared)
     [switch]$DryRun,                         # print resolved params + command + TOML, do NOT train
+    [switch]$Force,                          # train even if the outfit baked NOTHING (skip the zero-bake guard)
 
     # --- training params: unset here on purpose so train_config.py supplies the value from train.toml.
     #     Pass any of these to OVERRIDE for one run (highest precedence). ---
@@ -142,8 +143,15 @@ if ($DryRun) {
         $prepArgs = @($data, '--trigger', $Trigger)
         if ($Outfit) { $prepArgs += @('--outfit', $Outfit) }   # auto-bakes the outfit (colour variants too)
         if ($Prune)  { $prepArgs += @('--prune', $Prune) }
+        # Abort if the outfit baked NOTHING (a vocab mismatch -> the LoRA wouldn't carry the outfit). -Force skips this.
+        if (($Outfit -or $Prune) -and -not $Force) { $prepArgs += '--strict' }
         & $py (Join-Path $PSScriptRoot 'prep_captions.py') @prepArgs
-        if ($LASTEXITCODE -ne 0) { Die "prep_captions failed" }
+        $prc = $LASTEXITCODE
+        if ($prc -eq 2) {
+            Die ("outfit/prune matched NO caption tags -- it did NOT bake into '$Trigger', so the LoRA would " +
+                 "not carry the outfit. Fix the outfit words in characters.toml to match the WD14 tagger's tags " +
+                 "(open a .txt in $data to see them), or re-run with -Force to train anyway.")
+        } elseif ($prc -ne 0) { Die "prep_captions failed (rc=$prc)" }
     }
 }
 

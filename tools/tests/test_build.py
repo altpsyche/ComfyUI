@@ -5,7 +5,7 @@ from il_graphs.config import ROOT, CHARACTERS
 from validate_workflow import validate
 
 STATIC = ["IL_1_Base", "IL_2_Refine", "IL_3_Guided", "IL_4_Studio", "IL_5_Max",
-          "IL_IPAdapter", "IL_Pose", "IL_LCM"]
+          "IL_IPAdapter", "IL_Pose", "IL_LCM", "IL_XYPlot"]
 
 
 def _expected_names():
