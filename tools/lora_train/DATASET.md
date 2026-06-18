@@ -6,14 +6,17 @@
 
 `IL_DatasetEdit_<name>` is the 2026 way to bootstrap a dataset for a **fully-original** character —
 one that doesn't resemble any danbooru character, so a text tag can't carry the face. One
-**self-contained, two-stage** graph per roster entry:
+**self-contained** graph per roster entry:
 
 - **STAGE 1** renders ONE hero from the character's `id` tags **in your own SDXL checkpoint** (you
   reroll a fixed **Hero Seed** and pick the face) — so a brand-new character needs **no input image**.
 - **STAGE 2** lets an **image-edit model re-pose that whole hero** (face + hair + body + outfit) into
   new angles/poses/scenes, holding identity *and* your art style. Edit models only change what the
   instruction asks and are conditioned on the input image, so every frame stays on-style — no realism
-  drift. (An optional IL img2img low-denoise re-skin can follow, but isn't needed in practice.)
+  drift.
+- **STAGE 3** (default ON) re-details each frame's **face + hands in your SDXL checkpoint** (a clean
+  identity-only face prompt, denoise ~0.35) — Qwen softens faces, so this re-asserts the canonical face
+  + crisps the frame for a better training set. Toggle `QE_STAGE3_POLISH` in `il_graphs/graphs.py`.
 
 The dataset only needs *recognizably the same person*; curation drops outliers and the trained LoRA
 averages the rest into the final exact face. Curate → `train_lora.ps1`.
@@ -56,6 +59,7 @@ Stage-1 prompt (the `id`), Stage-2 model, and `dataset/<name>/<name>` save prefi
 | **Encoders + scale** | `CLIPLoader` (qwen2.5-vl-7b, type `qwen_image`), `VAELoader` (qwen_image_vae), `FluxKontextImageScale` (scales the hero to the model's pixel budget). |
 | **Instruction + encode** | **`Edit instruction`** (`ImpactWildcardProcessor`, **mode `populate`** — see below) → `TextEncodeQwenImageEditPlus` (positive: scaled hero + instruction; negative: empty). Each conditioning passes a `FluxKontextMultiReferenceLatentMethod` node (kept **ON** — required for the repackaged GGUF). `VAEEncode` makes the init latent. |
 | **Edit + decode** | `KSampler` (Lightning: **6 steps / cfg 1.0 / euler / simple / denoise 1.0**) → `VAEDecode`. |
+| **STAGE 3 — polish** *(default ON)* | `FaceDetailer` ×2 (face + hand) in the SDXL hero checkpoint — face pass uses a clean identity-only prompt at denoise `QE_STAGE3_FACE_DENOISE` (0.35). Re-asserts the canonical face + crisps the frame. Skip with `QE_STAGE3_POLISH=False`. |
 | **Save** | `SaveImage` prefix `dataset/<name>/<name>` → `output/dataset/<name>/`. |
 
 ## Step-by-step
@@ -70,6 +74,9 @@ Stage-1 prompt (the `id`), Stage-2 model, and `dataset/<name>/<name>` save prefi
    framing/angle/pose/expression/background/lighting.
 4. Set **batch count** beside Queue to ~40 and **Queue once** → ~40 varied frames stream into
    `output/dataset/<name>/`. (One edit per queue — use a higher batch count than a batched txt2img.)
+   *Headless / unattended:* one-time **File → Export (API)** the graph as
+   `IL_DatasetEdit_<name>.api.json`, then `python tools/lora_train/gen_dataset.py <name> -n 40` queues
+   it N times with fresh seeds (or `--all` for the roster). See [REFERENCE.md](REFERENCE.md).
 5. **Curate:** delete melted/off-model/duplicate frames **in place**. Keep the best **25–40** (min
    **12**), varied in pose/angle/scene. Then train: `train_lora.ps1 -Char <name>` (or `train_all.ps1`).
 
@@ -91,9 +98,8 @@ __angle__, __pose__, __expression__, __framing__, __background__, __lighting__
   so a **headless API POST** — no frontend to populate — still expands in the node backend
   (`doit()` → `process(populated_text, seed)`), keyed on the seed. (Early headless sameness came from a
   *concrete, wildcard-free* default, not from `populate`.)
-- The six `__token__`s are Impact-Pack wildcards (one random line each, from
-  `custom_nodes/ComfyUI-Impact-Pack/wildcards/*.txt`). Edit those files to steer variety — see
-  [WILDCARDS.md](WILDCARDS.md).
+- The six `__token__`s are wildcards (one random line each) read from the tracked
+  `tools/il_graphs/wildcards/*.txt`. Edit those files to steer variety — see [WILDCARDS.md](WILDCARDS.md).
 - The **multiple-angles LoRA** (strength **0.8**) reinforces camera-angle changes; raise toward 1.0 for
   more push, lower if identity drifts.
 
@@ -106,18 +112,35 @@ If you settle on better defaults (LoRA strengths, steps, instruction), bake them
 | Symptom | Dial |
 |---|---|
 | Poses too similar | confirm seed control = randomize and the bottom box re-rolls; keep `__angle__/__pose__` leading; raise multiple-angles LoRA (0.8 → 1.0); add lines to `pose.txt`/`angle.txt` |
-| Identity drifts across frames | lower multiple-angles LoRA (0.8 → 0.6); trim the scene axes (`__background__/__lighting__`); use a cleaner hero |
-| Soft / low-detail output | raise KSampler steps (6 → 8–10), keep the Lightning LoRA; cfg can stay 1.0 |
-| Style drifts from your checkpoint | ensure the hero was rendered in your checkpoint; optionally add an IL img2img re-skin (denoise 0.25–0.35) after |
+| Identity drifts across frames | Stage-3 re-asserts the face in your checkpoint — raise `QE_STAGE3_FACE_DENOISE` (0.35 → 0.5); also lower multiple-angles LoRA (0.8 → 0.6), trim scene axes, use a cleaner hero |
+| Soft / low-detail faces | Stage-3 face-detail handles this; if still soft, raise the edit KSampler steps (`QE_EDIT_STEPS` 6 → 8–10), keep the Lightning LoRA, cfg stays 1.0 |
+| Style drifts from your checkpoint | ensure the hero is rendered in your checkpoint; Stage-3 re-renders the face there too. The face prompt is identity-only by design |
+| Faces over-cooked / not the Qwen pose | lower `QE_STAGE3_FACE_DENOISE` (0.35 → 0.25), or `QE_STAGE3_POLISH=False` to save the raw edit |
 | Output too zoomed/cropped | the ref auto-scales via `FluxKontextImageScale`; add framing words to `framing.txt` |
-| Too slow per frame | per-frame compute is fixed by KSampler steps (6) + the model stack — wildcards add none. A real slowdown is environmental: a cold reload of the ~24 GB stack after regenerate, other GPU apps, or VRAM pressure (the 9 GB encoder offloads to RAM). Time a few frames; use `-Quant Q4_K_M` if the encoder swap dominates |
+| Too slow per frame | Stage-3 adds ~2 SDXL detail passes per frame (the biggest cost) — set `QE_STAGE3_POLISH=False` for raw edits. Otherwise per-edit compute is fixed by `QE_EDIT_STEPS` (6) + the model stack; a real slowdown is environmental (cold ~24 GB reload, other GPU apps, encoder offload). `-Quant Q4_K_M` if the encoder swap dominates |
+
+## Removable garments (coat-off frames)
+
+To make a garment **removable at inference** (e.g. take the overcoat off), two parts:
+
+1. **Keep it promptable** — list it in the character's `keep` field so it's *not* baked into the trigger
+   (see [REFERENCE.md](REFERENCE.md) "Removable garments"). Now the prompt controls it.
+2. **Show it both ways in the dataset** *(optional but needed for reliable removal)* — if every frame
+   wears the coat, the LoRA still learns "trigger ⇒ coat". Generate a handful of **coat-off** frames so
+   it learns the character without it:
+   - quickest: temporarily drop the garment from the character's `outfit`, regenerate ~10 frames, and
+     curate them into the same `output/dataset/<name>/`; or
+   - per-frame: append an explicit removal to the edit instruction (e.g. `, remove the coat`) for some
+     queues — Qwen-Edit can take layers off. Verify it removes cleanly before committing many frames.
+
+A 70/30 with-coat / without-coat split is plenty for clean on/off control.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
 | Node/changes not showing | A loaded graph is cached — **re-open** the workflow after regenerating. |
-| Every frame the same pose/angle | First the *prompt* must roll (`mode: populate`, seed = randomize — bottom box changes each queue). If the prompt rolls but the *image* doesn't, that's Qwen being conservative: keep `__angle__/__pose__` leading and raise the multiple-angles LoRA toward 1.0. Headless POSTs need the seed-randomizing runner (`convert_and_run.py`); a raw POST keeps the saved seed. |
+| Every frame the same pose/angle | First the *prompt* must roll (`mode: populate`, seed = randomize — bottom box changes each queue). If the prompt rolls but the *image* doesn't, that's Qwen being conservative: keep `__angle__/__pose__` leading and raise the multiple-angles LoRA toward 1.0. Headless? use `gen_dataset.py` (it bumps seeds per POST); a raw POST keeps the saved seed. |
 | Images for all characters in one folder | Old prefix bug; ensure the SaveImage prefix is `dataset/<name>/<name>` (regenerate). |
 | `__pose__` etc. appear literally in the image | Wildcard file missing/misnamed — files go in `custom_nodes/ComfyUI-Impact-Pack/wildcards/`; reload graph. |
 | `ImpactWildcardProcessor` missing / red | Impact-Pack not loaded — `setup.bat` / `install_node_reqs.ps1`. |

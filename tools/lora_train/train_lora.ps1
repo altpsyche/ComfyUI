@@ -27,6 +27,7 @@ param(
     [string]$Trigger,                        # caption trigger token (default: <Char>char)
     [string]$Outfit,                         # roster outfit string; its garments auto-bake into the trigger (default: from roster.json)
     [string]$Prune = "",                     # EXTRA exact/head-noun tags to bake (outfit is auto-pruned from -Outfit)
+    [string]$Keep = "",                      # garment tags to KEEP promptable (NOT baked) so they're add/removable at inference (default: from roster.json)
     [string]$Base,                           # checkpoint (default: oneObsession in models/checkpoints)
     [switch]$TrainTextEncoder,               # also train the TE (drops --network_train_unet_only)
     [switch]$SkipCaption,                    # don't auto-caption (captions already prepared)
@@ -54,7 +55,7 @@ $acc   = Join-Path $repo 'tools\lora_train\.venv\Scripts\accelerate.exe'
 $sdDir = Join-Path $repo 'tools\sd-scripts'
 $data  = Join-Path $repo "output\dataset\$Char"
 $outDir = Join-Path $repo 'models\loras'
-# roster defaults (trigger/prune/outfit) from the build-generated manifest, unless overridden on the CLI
+# roster defaults (trigger/prune/outfit/keep) from the build-generated manifest, unless overridden on the CLI
 $rosterFile = Join-Path $repo 'tools\lora_train\roster.json'
 if (Test-Path $rosterFile) {
     # NB: WinPS 5.1 ConvertFrom-Json emits the array as one non-enumerated object — iterate with foreach.
@@ -64,6 +65,7 @@ if (Test-Path $rosterFile) {
             if (-not $Trigger) { $Trigger = [string]$e.trigger }
             if (-not $PSBoundParameters.ContainsKey('Prune') -and $e.prune) { $Prune = [string]$e.prune }
             if (-not $PSBoundParameters.ContainsKey('Outfit') -and $e.outfit) { $Outfit = [string]$e.outfit }
+            if (-not $PSBoundParameters.ContainsKey('Keep') -and $e.keep) { $Keep = [string]$e.keep }
             break
         }
     }
@@ -143,6 +145,7 @@ if ($DryRun) {
         $prepArgs = @($data, '--trigger', $Trigger)
         if ($Outfit) { $prepArgs += @('--outfit', $Outfit) }   # auto-bakes the outfit (colour variants too)
         if ($Prune)  { $prepArgs += @('--prune', $Prune) }
+        if ($Keep)   { $prepArgs += @('--keep', $Keep) }       # these garments stay promptable (removable at inference)
         # Abort if the outfit baked NOTHING (a vocab mismatch -> the LoRA wouldn't carry the outfit). -Force skips this.
         if (($Outfit -or $Prune) -and -not $Force) { $prepArgs += '--strict' }
         & $py (Join-Path $PSScriptRoot 'prep_captions.py') @prepArgs

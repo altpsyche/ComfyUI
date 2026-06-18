@@ -144,6 +144,8 @@ tools/
     train_lora.ps1            caption + train one character (-Profile / -DryRun / param flags)
     train_all.ps1             train the whole roster
     prep_captions.py          trigger-prepend + auto-bake outfit (tolerant) + extra prune (--dry-run)
+    cull_dataset.py           flag blurry / near-duplicate frames before curating (--apply)
+    gen_dataset.py            headless: queue IL_DatasetEdit N times with fresh seeds (needs Export-API)
     verify_env.py             venv sanity check
     .venv/                    trainer venv (uv, py3.11, torch cu128)   [gitignored]
     roster.json               name/trigger/id/outfit/prune manifest   [gitignored, generated]

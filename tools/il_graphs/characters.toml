@@ -23,8 +23,19 @@
 #   hero_seed int pinning the Stage-1 hero FACE (generation only — NOT the training
 #             seed in train.toml). Set once you reroll to a face you like, so `like`
 #             variants reuse it. Defaults to the shared SEED (config.py).
+#   framing   (optional) full framing descriptor for the Stage-1 hero (no leading
+#             comma), overriding the global default. Default is full-body (captures
+#             the whole outfit); use e.g. "portrait, upper body, plain grey background,
+#             looking at viewer, neutral expression" for a face-focused character.
+#             Inherited via `like`.
 #   prune     EXTRA tags to bake beyond the outfit (e.g. identity, for a harder lock).
 #             Leave unset — the outfit already bakes; identity stays promptable.
+#   keep      (optional) garment tags to KEEP promptable instead of baking — so you can
+#             ADD or REMOVE them at inference (prompt the tag to wear it; omit/negative
+#             to drop it). Use WD14 vocab, e.g. keep = "coat, jacket" lets you take the
+#             overcoat off. (For reliable removal the dataset should also contain some
+#             frames WITHOUT the garment — see DATASET.md "removable garments".)
+#             Inherited via `like`.
 #   trigger   caption keyword. Defaults to "<name>char".
 #
 # MINIMAL entry (identity only — the checkpoint picks the clothes, promptable not locked):
@@ -44,12 +55,16 @@ id        = "1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole
 outfit    = "hoodie, pleated skirt, black thighhighs, sneakers"        # outfit #1 — danbooru vocab so it bakes
 hero_seed = 20250618                                                   # pins her face; mira_winter (below) reuses it
 prune     = "black hair, bob cut, red eyes, mole under eye, pale skin" # bake identity HARD -> mirachar alone = the same face
+framing   = "full body, standing, plain grey background, simple background, looking at viewer, neutral expression"  # explicit hero framing (this = the global full-body default; use "portrait, upper body, ..." for a face-focused character)
+keep      = "hoodie"                                                   # keep the hoodie PROMPTABLE (add/remove at inference); skirt/thighhighs/sneakers still bake
 
 # SAME character (inherits mira's id + hero_seed + prune), outfit #2 -> its own LoRA, same face + lock.
 # Override trigger / hero_seed / prune here if you want; otherwise they're inherited/defaulted.
 [mira_winter]
-like   = "mira"
-outfit = "long coat, turtleneck sweater, scarf, knee boots"           # outfit #2 — winter; trigger defaults to mira_winterchar
+like    = "mira"
+outfit  = "long coat, turtleneck sweater, scarf, knee boots"          # outfit #2 — winter; trigger defaults to mira_winterchar
+framing = "full body, standing, plain grey background, simple background, looking at viewer, neutral expression"  # inheritable from mira; shown explicitly
+keep    = "coat, long coat"                                           # OVERRIDE mira's keep: make the overcoat removable (omit/negative "coat" at inference to drop it)
 
 # ----------------------------------------------------------------------------
 # ROSTER — given the same full treatment as the benchmark (pinned hero_seed +

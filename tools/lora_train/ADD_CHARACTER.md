@@ -71,7 +71,9 @@ Open **`IL_DatasetEdit_<name>`** (anatomy + tuning: [DATASET.md](DATASET.md)):
 
 ## 4. Curate
 
-- [ ] Delete off-model / bad-anatomy / wrong-outfit frames **in place**.
+- [ ] *(optional)* mechanical first pass — flag blurry / near-duplicate frames:
+      `python tools/lora_train/cull_dataset.py <name>` (add `--apply` to move them to `_rejected/`).
+- [ ] Delete off-model / bad-anatomy / wrong-outfit frames **in place** (the identity call is yours).
 - [ ] Keep the best **25–40** (minimum **12**). Quality + variety beats count.
 
 ## 5. (Optional) Tune training

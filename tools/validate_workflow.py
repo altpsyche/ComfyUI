@@ -31,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MODELS = REPO_ROOT / "models"
 CUSTOM_NODES = REPO_ROOT / "custom_nodes"
 WILDCARDS_DIRS = [
+    REPO_ROOT / "tools" / "il_graphs" / "wildcards",   # tracked source of truth (Impact-Pack reads it via custom_wildcards)
     CUSTOM_NODES / "ComfyUI-Impact-Pack" / "wildcards",
     CUSTOM_NODES / "ComfyUI-Inspire-Pack" / "wildcards",
 ]

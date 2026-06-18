@@ -120,8 +120,23 @@ QE_VAE = "qwen_image_vae.safetensors"
 QE_LIGHTNING = "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
 QE_ANGLES = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
 
+# Stage-2 edit knobs (the tunable Qwen-Edit dials — change here, regenerate). See DATASET.md.
+QE_LIGHTNING_STR = 1.0     # Lightning 4-step LoRA strength
+QE_ANGLES_STR = 0.8        # multiple-angles LoRA: raise toward 1.0 for more angle push, lower if identity drifts
+QE_SHIFT = 3.1             # ModelSamplingAuraFlow shift (official 2511 value)
+QE_CFGNORM = 1.0           # CFGNorm
+QE_EDIT_STEPS = 6          # Lightning edit steps; raise to 8-10 only if edits look soft
+QE_EDIT_CFG = 1.0          # Lightning runs at cfg 1.0 (so the negative branch is unused)
+QE_EDIT_SAMPLER = "euler"
+QE_EDIT_SCHED = "simple"
+# Stage-3 polish: re-detail each edited frame in YOUR SDXL checkpoint (face + hand) before saving, so the
+# dataset face stays on-model + crisp (Qwen softens faces). Best identity/quality; set False for the raw
+# Qwen edit (faster, ~1 SDXL pass less per frame). The face pass uses a clean identity-only prompt.
+QE_STAGE3_POLISH = True
+QE_STAGE3_FACE_DENOISE = 0.35   # face re-render strength (higher = more re-assertion of the SDXL face)
 
-def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed=SEED):
+
+def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed=SEED, framing=None):
     """FRONTIER dataset generator (self-contained): generate ONE original hero, then re-pose it into
     many varied shots with Qwen-Image-Edit-2511 (GGUF), holding identity + art style. One graph per
     roster character (IL_DatasetEdit_<name>); the trainer reads output/dataset/<name>/ as usual.
@@ -142,7 +157,10 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed
     hseed = b.add("Seed", [hero_seed, "fixed"], pos=(0, 300), title="Hero Seed (fixed = pick the face)")
     hclip = b.add("CLIPSetLastLayer", [-2], pos=(0, 450), title="CLIP skip -2")
     b.link(ck, "CLIP", hclip, "clip")
-    hpos = b.add("CLIPTextEncode", [identity + (", " + outfit if outfit else "") + REF_SUFFIX],
+    # Hero framing suffix: per-character `framing` (full descriptor, no leading comma) overrides the
+    # global REF_SUFFIX — e.g. a face-focused character can use a portrait crop for a larger face.
+    suffix = (", " + framing) if framing else REF_SUFFIX
+    hpos = b.add("CLIPTextEncode", [identity + (", " + outfit if outfit else "") + suffix],
                  pos=(360, 0), title="Hero prompt (identity)")
     hneg = b.add("CLIPTextEncode", [NEG], pos=(360, 180), title="Negative")
     hlat = b.add("EmptyLatentImage", [832, 1216, 1], pos=(360, 360), title="Hero latent 832x1216")
@@ -159,10 +177,10 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed
 
     # ===== STAGE 2 model — GGUF + Lightning(+angles) LoRA -> flow-shift + CFGNorm (2511 patch chain) =====
     gguf = b.add("UnetLoaderGGUF", [QE_GGUF], pos=(1180, 0), title="Qwen-Edit GGUF (Q5)")
-    llora = b.add("LoraLoaderModelOnly", [QE_LIGHTNING, 1.0], pos=(1180, 150), title="Lightning 4-step LoRA")
-    alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, 0.8], pos=(1180, 300), title="Multiple-angles LoRA")
-    msaf = b.add("ModelSamplingAuraFlow", [3.1], pos=(1180, 450), title="ModelSampling (shift 3.1)")
-    cfgn = b.add("CFGNorm", [1.0], pos=(1180, 600), title="CFGNorm")
+    llora = b.add("LoraLoaderModelOnly", [QE_LIGHTNING, QE_LIGHTNING_STR], pos=(1180, 150), title="Lightning 4-step LoRA")
+    alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, QE_ANGLES_STR], pos=(1180, 300), title="Multiple-angles LoRA")
+    msaf = b.add("ModelSamplingAuraFlow", [QE_SHIFT], pos=(1180, 450), title="ModelSampling (shift 3.1)")
+    cfgn = b.add("CFGNorm", [QE_CFGNORM], pos=(1180, 600), title="CFGNorm")
     b.link(gguf, "MODEL", llora, "model"); b.link(llora, "MODEL", alora, "model")
     b.link(alora, "MODEL", msaf, "model"); b.link(msaf, "MODEL", cfgn, "model")
 
@@ -200,7 +218,8 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed
     b.link(scale, "IMAGE", venc, "pixels"); b.link(vae, "VAE", venc, "vae")
 
     # ===== edit + decode (Lightning: 6 steps / cfg 1.0 / euler / simple) =====
-    ks = b.add("KSampler", [SEED, "randomize", 6, 1.0, "euler", "simple", 1.0], pos=(3120, 220), title="Edit KSampler (6 steps)")
+    ks = b.add("KSampler", [SEED, "randomize", QE_EDIT_STEPS, QE_EDIT_CFG, QE_EDIT_SAMPLER, QE_EDIT_SCHED, 1.0],
+               pos=(3120, 220), title="Edit KSampler (6 steps)")
     b.link(cfgn, "MODEL", ks, "model"); b.link(posref, "CONDITIONING", ks, "positive")
     b.link(negref, "CONDITIONING", ks, "negative"); b.link(venc, "LATENT", ks, "latent_image")
     vdec = b.add("VAEDecode", [], pos=(3120, 460), title="Decode")
@@ -218,10 +237,25 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed
         "Wildcards (__angle__/__pose__/__expression__/__framing__/__background__/__lighting__) live in\n"
         "  ComfyUI-Impact-Pack/wildcards/. Too slow / OOM? re-run install_qwen_edit.ps1 -Quant Q4_K_M.\n"
         "Poses too similar? __pose__/__angle__ lead the instruction on purpose -- raise the multiple-angles\n"
-        "  LoRA toward 1.0, or drop a scene axis. Identity drifting? lower the multiple-angles LoRA."],
+        "  LoRA toward 1.0, or drop a scene axis. Identity drifting? lower the multiple-angles LoRA.\n"
+        "STAGE 3: each saved frame is face+hand detailed in YOUR checkpoint (cleaner, on-model faces).\n"
+        "  Set QE_STAGE3_POLISH=False in il_graphs/graphs.py to save the raw Qwen edit instead (faster)."],
         pos=(2120, 700), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
 
-    add_finish(b, (vdec, "IMAGE"), f"dataset/{name}/{name}", x=3520)
+    # ===== STAGE 3 — polish: re-detail the edited frame in YOUR SDXL checkpoint (face + hand) =====
+    # Qwen softens faces / drifts identity slightly; a face+hand detail pass in the hero checkpoint
+    # re-asserts the canonical face + art style on every frame -> a cleaner training set. The face pass
+    # uses an identity-ONLY prompt (outfit/pose/framing tags fight the tiny face crop -- see GOTCHAS).
+    final = (vdec, "IMAGE")
+    if QE_STAGE3_POLISH:
+        fpos = b.add("CLIPTextEncode", [identity], pos=(3120, 640), title="Face restore prompt (identity only)")
+        b.link(hclip, "CLIP", fpos, "clip")
+        cpolish = {"msrc": (ck, "MODEL"), "clip": hclip, "vae": hvae, "seed": hseed,
+                   "cpos": (hpos, "CONDITIONING"), "cneg": (hneg, "CONDITIONING")}
+        final = add_detailers(b, cpolish, (vdec, "IMAGE"), x=3600,
+                              face_cond=(fpos, "CONDITIONING"), face_denoise=QE_STAGE3_FACE_DENOISE)
+
+    add_finish(b, final, f"dataset/{name}/{name}", x=4520)
     b.group("STAGE 1 - Hero generator (Illustrious)", [ck, hvae, hseed, hclip, hpos, hneg, hlat, hks, hdec, hprev], "#535")
     b.group("STAGE 2 - Qwen-Edit model + LoRAs", [gguf, llora, alora, msaf, cfgn], "#525")
     b.group("Encoders + scale", [clip, vae, scale], "#535")

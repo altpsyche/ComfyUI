@@ -66,11 +66,12 @@ DOCS = {
      "Y axis = LoRA weight, swept Y_first->Y_last over Y_batch_count columns.",
      "KSampler (Efficient): euler_ancestral / normal / 30 / cfg 5 — matches IL_1_Base.",
      "CLIP skip -2 is set in the Efficient Loader widget (no separate CLIPSetLastLayer node)."]),
-  "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF) -- SELF-CONTAINED, two "
-    "stages. STAGE 1 renders ONE hero from this character's id tags in your Illustrious checkpoint "
+  "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF) -- SELF-CONTAINED. "
+    "STAGE 1 renders ONE hero from this character's id tags in your Illustrious checkpoint "
     "(fixed Hero Seed + HERO preview). STAGE 2 re-poses that hero into many varied shots holding "
-    "identity AND art style, per a wildcard instruction. A brand-new character needs NO pre-existing "
-    "image. Needs scripts/install_qwen_edit.ps1 + the ComfyUI-GGUF node.",
+    "identity AND art style, per a wildcard instruction. STAGE 3 re-details each frame's face + hands "
+    "in your checkpoint so the dataset stays on-model + crisp. A brand-new character needs NO "
+    "pre-existing image. Needs scripts/install_qwen_edit.ps1 + the ComfyUI-GGUF node.",
     "Best-consistency dataset bootstrap for a FULLY-ORIGINAL character (no danbooru anchor needed).",
     ["STAGE 1: reroll the Hero Seed and watch HERO preview until you like the face; then leave it fixed.",
      "STAGE 2: reroll the Edit-instruction seed (batch-queue ~40) to fill output/dataset/<name>/ with varied poses/angles.",
@@ -79,6 +80,8 @@ DOCS = {
     ["STAGE 1 hero: euler_a / normal / 30 / cfg 5, 832x1216, your checkpoint (id-driven prompt).",
      "Lightning 4-step LoRA -> edit KSampler 6 steps / cfg 1.0 / euler / simple (fast; makes Q5 practical on 16 GB).",
      "Multiple-angles LoRA (strength ~0.8) drives camera-angle variety; lower it if identity drifts.",
+     "STAGE 3 polish: each frame is face+hand detailed in your SDXL checkpoint (denoise ~0.35, identity-"
+     "only face prompt) so faces stay on-model + crisp. Toggle QE_STAGE3_POLISH in il_graphs/graphs.py.",
      "Reference-latent-method nodes are kept ON (needed for the repackaged GGUF build).",
      "Edit instruction node is mode='populate': the UI shows the resolved prompt and re-rolls each "
      "queue; populated_text holds the wildcards too, so a headless API POST still expands them in the "
@@ -87,7 +90,7 @@ DOCS = {
      "rewrite reduced pose variety, so don't reorder pose behind the scene axes.",
      "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",
      "Wildcards (__framing__/__angle__/__pose__/__expression__/__background__/__lighting__) live in "
-     "custom_nodes/ComfyUI-Impact-Pack/wildcards/.",
+     "tools/il_graphs/wildcards/ (tracked; Impact-Pack reads them via its custom_wildcards setting).",
      "Full guide (setup, anatomy, instruction system, tuning, troubleshooting): "
      "tools/lora_train/DATASET.md; training knobs: tools/lora_train/REFERENCE.md."]),
 }

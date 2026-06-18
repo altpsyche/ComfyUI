@@ -38,6 +38,13 @@ def test_protect_set_and_keep_override():
     assert not P.should_prune("white shoes", phrases, nouns, {"white shoes"})  # explicit keep wins
 
 
+def test_keep_makes_garment_promptable():
+    # the overcoat case: a kept garment stays promptable (add/removable at inference), not baked.
+    phrases, nouns = P.build_lock("long coat, turtleneck sweater", "")
+    assert P.should_prune("coat", phrases, nouns, set())          # baked by default (head-noun match)
+    assert not P.should_prune("coat", phrases, nouns, {"coat"})   # in keep -> stays a promptable tag
+
+
 def test_structural_tags_never_locked():
     phrases, _ = P.build_lock("1girl, solo, tennis dress", "")
     assert "1girl" not in phrases and "solo" not in phrases

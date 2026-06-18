@@ -49,12 +49,15 @@ def main():
             spec.setdefault("id", parent["id"])
             spec.setdefault("hero_seed", parent.get("hero_seed", SEED))
             spec.setdefault("prune", parent.get("prune", ""))   # same person -> inherit the identity lock too
+            spec.setdefault("framing", parent.get("framing"))   # inherit the hero framing too
+            spec.setdefault("keep", parent.get("keep", ""))      # inherit the promptable-garment list too
         hero_seed = spec.get("hero_seed", SEED)
         outfit = spec.get("outfit", "")
         roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",
-                       "id": spec["id"], "outfit": outfit, "prune": spec.get("prune", "")})
+                       "id": spec["id"], "outfit": outfit, "prune": spec.get("prune", ""),
+                       "keep": spec.get("keep", "")})
         egname = f"IL_DatasetEdit_{cname}"
-        graphs[egname] = build_dataset_edit(cname, spec["id"], outfit, hero_seed)
+        graphs[egname] = build_dataset_edit(cname, spec["id"], outfit, hero_seed, spec.get("framing"))
         req[egname] = edit_req
     (ROOT / "tools/lora_train/roster.json").write_text(json.dumps(roster, indent=2), encoding="utf-8")
 

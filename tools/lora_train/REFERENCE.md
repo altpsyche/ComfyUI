@@ -34,6 +34,8 @@ The single "what can I tune, and where" page. Adding a character start-to-finish
 | `tools\lora_train\train_all.ps1` | `train_lora` for every roster character with a dataset. | passes extra flags through |
 | `python tools/lora_train/train_config.py --char <c>` | Print the resolved training params as JSON (what `train_lora` will use). | `--profile`, `--set key=value` |
 | `python tools/lora_train/prep_captions.py <dir> --trigger <t>` | Prepend trigger + bake outfit tags into captions. | `--outfit`, `--prune`, `--keep`, `--dry-run`, `--strict` (fail on zero-bake) |
+| `python tools/lora_train/cull_dataset.py <char>` | Flag blurry / near-duplicate frames in `output/dataset/<char>/` (mechanical first-pass cull). Report-only by default. | `--apply` (move to `_rejected/`), `--blur`, `--dup`, `--no-blur`, `--no-dup` |
+| `python tools/lora_train/gen_dataset.py <char> -n 40` | Headless: queue the `IL_DatasetEdit_<char>` graph N times with fresh seeds (needs ComfyUI running + a one-time **Export (API)** of the graph). | `-n/--count`, `--all` (roster), `--seed`, `--url` |
 | `tools\lora_train\.venv\Scripts\python.exe tools\lora_train\verify_env.py` | Verify the trainer venv (GPU bf16, sd-scripts, tagger, dataset TOML parse, wildcards). | — |
 | `scripts\install_qwen_edit.ps1` | Download the Qwen-Image-Edit stack. | `-Quant Q4_K_M`, `-SkipAnglesLora` |
 
@@ -71,9 +73,9 @@ Precedence (**highest wins**): explicit **CLI flag** › **`-Profile`** preset �
 16 GB card** unless you know why (see GOTCHAS). Deeper optimizer internals (prodigy `weight_decay` etc.)
 stay assembled in `train_lora.ps1`.
 
-**Non-param flags:** `-Char` (required; dataset folder + LoRA name), `-Trigger` / `-Outfit` / `-Prune`
-(default from `roster.json`), `-Base` (checkpoint), `-SkipCaption` (reuse captions), `-Profile` (preset
-name), `-DryRun` (preview only), `-Force` (train even if the outfit baked nothing — see the guard below).
+**Non-param flags:** `-Char` (required; dataset folder + LoRA name), `-Trigger` / `-Outfit` / `-Prune` /
+`-Keep` (default from `roster.json`), `-Base` (checkpoint), `-SkipCaption` (reuse captions), `-Profile`
+(preset name), `-DryRun` (preview only), `-Force` (train even if the outfit baked nothing — see below).
 
 ### Outfit-bake guard
 
@@ -82,6 +84,20 @@ didn't bake into the trigger (the silent-failure mode: a green run, a wrong LoRA
 **tagger-vocabulary mismatch** — the outfit must use the words WD14 actually writes (e.g. `thighhighs`,
 not `stockings`; `panties`, not `thong underwear`). Open a dataset `.txt` to see the real tags. Pass
 `-Force` to train anyway, or run `prep_captions … --dry-run` to preview what would prune.
+
+### Removable garments (`-Keep` / `keep`)
+
+Baking welds a garment to the trigger — **always-on, hard to remove**. To keep a garment **promptable**
+(add it by naming it, remove it by omitting or negative-prompting), list it in the character's `keep`
+field (or pass `-Keep "coat, jacket"`); those tags are protected from pruning instead of baked. Use WD14
+vocab (same rule as `outfit`). Precedence at inference: baked `outfit` = permanent identity; `keep`
+garments = optional layers.
+
+> **Caveat — for *reliable* removal the dataset must show it both ways.** If every frame wears the coat,
+> the LoRA still correlates it with the trigger and tends to draw it even when unprompted. `keep` makes
+> it *promptable*; true coat-off control also needs some coat-off frames in the dataset (generate a
+> handful with "remove the coat" in the edit instruction, or curate in a few). This is the optional
+> next step beyond `keep`.
 
 ## Profiles
 
