@@ -167,7 +167,7 @@
         "ver": "3.0.1"
       },
       "widgets_values": [
-        1234567890,
+        20250621,
         "fixed"
       ],
       "title": "Hero Seed (fixed = pick the face)"
@@ -501,7 +501,7 @@
         "Node name for S&R": "KSampler"
       },
       "widgets_values": [
-        1234567890,
+        20250621,
         "fixed",
         30,
         5,

@@ -1,7 +1,7 @@
 # Character LoRA — quick start
 
-Terse loop. **Can't-miss checklist: [ADD_CHARACTER.md](ADD_CHARACTER.md).** Full detail:
-[README.md](README.md). Every knob in one table: [REFERENCE.md](REFERENCE.md).
+Terse loop. **Can't-miss checklist: [ADD_CHARACTER.md](ADD_CHARACTER.md).** Concepts + setup:
+[README.md](README.md). Dataset engine: [DATASET.md](DATASET.md). Every knob: [REFERENCE.md](REFERENCE.md).
 
 ## Once per machine
 
@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # Qwen-
    ```powershell
    python tools/build_il_graphs.py
    ```
-3. In ComfyUI, open `IL_DatasetEdit_aria`:
+3. In ComfyUI, open `IL_DatasetEdit_aria` (details: [DATASET.md](DATASET.md)):
    - **Stage 1:** reroll **Hero Seed** until the face in HERO preview is good. Leave it fixed.
    - **Stage 2:** seed control = randomize, batch count ~40, **Queue once** -> `output/dataset/aria/`.
 4. Curate: delete bad frames in place. Keep best 25-40 (min 12).

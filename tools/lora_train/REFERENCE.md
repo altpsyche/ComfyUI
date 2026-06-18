@@ -1,8 +1,9 @@
 # Reference — what the LoRA toolchain offers
 
 The single "what can I tune, and where" page. Adding a character start-to-finish:
-[ADD_CHARACTER.md](ADD_CHARACTER.md). Step-by-step quick loop: [QUICKSTART.md](QUICKSTART.md); the full
-narrative in [README.md](README.md); traps in [GOTCHAS.md](GOTCHAS.md).
+[ADD_CHARACTER.md](ADD_CHARACTER.md). Step-by-step quick loop: [QUICKSTART.md](QUICKSTART.md); concepts
++ setup in [README.md](README.md); the dataset engine in [DATASET.md](DATASET.md); traps in
+[GOTCHAS.md](GOTCHAS.md).
 
 ## The two configs (and how they meet)
 
@@ -103,6 +104,32 @@ Per-character persistent overrides go in `train.toml`:
 dim = 32
 alpha = 16
 ```
+
+## Tuning the result
+
+| The LoRA… | Dial |
+|---|---|
+| is weak / identity won't appear at inference | LoRA-bank strength ↑ (0.75 → 0.9); add `-TrainTextEncoder`; more `-Steps` |
+| is under-baked / low fidelity | `-Dim 32 -Alpha 16` (or `-Profile complex`) — more capacity for complex characters |
+| burns / overcooks | `-DCoef 0.8` (Prodigy) or `-Optimizer adamw` (3e-4); fewer `-Steps` |
+| overfits the dataset poses | fewer `-Steps`/`-Epochs`; curate a more varied dataset |
+| fries the style / too strong | LoRA-bank strength ↓ (0.75 → 0.6); lower `-Dim`/`-Alpha` |
+
+Generation-side variety/identity (the *dataset*, not the LoRA) is tuned in the graph — see
+[DATASET.md](DATASET.md).
+
+## Training troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `train_lora.ps1` "no dataset" | Generate to `output/dataset/<Char>/` first (SaveImage prefix `dataset/<Char>`). |
+| "only N images (need ≥12)" | Generate/curate more, or lower `-MinImages`. |
+| "outfit matched NO caption tags" (abort) | Outfit-vocabulary mismatch — see the guard above; fix the `outfit` words, or `-Force`. |
+| kohya errors `sm_120 not supported` | Trainer torch isn't cu128 — re-run `scripts/install_trainer.ps1`. |
+| `UnicodeEncodeError` (cp1252) during train | `PYTHONUTF8=1` (the scripts set it; set it manually if you run sd-scripts directly). |
+| OOM during training | drop `-Batch 1`, keep `--network_train_unet_only` (don't disable the safety toggles). |
+| A value "won't take effect" | something higher in the precedence chain overrides it — run `-DryRun` to see the resolved set. |
+| Run died with no traceback | machine sleep / GPU TDR — disable sleep; per-epoch checkpoints survive, relaunch `-SkipCaption`. See [GOTCHAS.md](GOTCHAS.md). |
 
 ## After training: pick the best epoch (`IL_XYPlot`)
 

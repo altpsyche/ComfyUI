@@ -1,17 +1,21 @@
 # ============================================================================
-# LoRA training parameters — data-driven, layered. Edit here instead of the .ps1.
+# LoRA training parameters — data-driven, layered. Edit here, not the .ps1.
 #
-# train_lora.ps1 resolves each value through train_config.py with this precedence
-# (highest wins):
+# Most runs need NO edits here: `train_lora.ps1` flags cover one-off tweaks, and the
+# [defaults] below are a solid character-LoRA baseline. Edit this file to move the
+# baseline or to PERSIST per-character / preset settings.
+#
+# train_lora.ps1 resolves each value via train_config.py; precedence (highest wins):
 #
 #     explicit CLI flag  >  -Profile <name>  >  [train.<char>]  >  [defaults]
 #
-#   • [defaults]        baseline for every run (the values train_lora used to hardcode).
+#   • [defaults]        baseline for every run.
 #   • [profiles.<name>] named bundles, chosen at runtime with -Profile <name>.
 #   • [train.<char>]    persistent per-character overrides (char = dataset folder name).
 #   • CLI flags         -Dim/-Steps/-Lr/-Resolution/... override everything for one run.
 #
-# Run `train_lora.ps1 -Char <c> -DryRun` to print the fully-resolved set without training.
+# Full flag<->key matrix: REFERENCE.md.  Preview a resolved run without training:
+#   train_lora.ps1 -Char <c> -DryRun
 # ============================================================================
 
 [defaults]
@@ -83,8 +87,29 @@ d_coef = 0.9
 
 # ---------------------------------------------------------------------------
 # Per-character persistent overrides. Table name = dataset folder / -Char name.
-# Example (uncomment / edit):
+# Any [defaults] key is overridable here; -Profile and explicit CLI flags still win.
+# ---------------------------------------------------------------------------
+
+# Benchmark character — extra capacity + a longer run so mira trains to a tight,
+# stable identity (the reference for comparing epochs / strengths / checkpoints).
+# NB: per-character IDENTITY (trigger/outfit/prune) and the hero FACE seed live in
+# characters.toml and reach the trainer via roster.json — NOT here. [train.<char>]
+# is training hyperparams only; the training `seed` (42) is a global RNG knob and
+# rarely worth changing per character.
+[train.mira]
+dim    = 32          # extra capacity to memorize the exact benchmark identity
+alpha  = 16          # dim/2
+steps  = 2000        # longer train for a tighter identity lock
+d_coef = 0.9         # prodigy: tame slightly so the longer run doesn't overcook
+
+# Template for your own per-character overrides (uncomment + edit). Every key is
+# optional; unset keys fall through to [profiles.*] then [defaults].
 # [train.nyx]
-# dim = 32
-# alpha = 16
+# dim                = 32        # LoRA rank (capacity)
+# alpha              = 16        # usually dim/2
+# steps              = 2000      # TARGET total steps
+# d_coef             = 0.9       # prodigy effective-LR knob (lower = gentler)
+# optimizer          = "adamw"   # prodigy | adamw | adafactor
+# lr                 = "3e-4"    # adamw/adafactor LR (prodigy is forced to 1.0)
+# train_text_encoder = true      # also train the text encoder (stronger, more VRAM)
 # ---------------------------------------------------------------------------

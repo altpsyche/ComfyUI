@@ -57,7 +57,7 @@ The edit instruction is `..., __angle__, __pose__, __expression__, __framing__, 
   show — avoid extreme crops or occlusions that hide the face.
 - **Want a new axis?** Add the token to `wtext` in `build_dataset_edit()`
   ([`tools/il_graphs/graphs.py`](../il_graphs/graphs.py)) AND create the matching `.txt`, then regenerate.
-  Keep `__angle__/__pose__` leading the instruction — see README §6.4 (Qwen moves the pose less if scene
-  axes come first).
+  Keep `__angle__/__pose__` leading the instruction — see [DATASET.md](DATASET.md) (Qwen moves the pose
+  less if scene axes come first).
 - A wildcard token printed *literally* in the image = the `.txt` is missing or misnamed; fix the path and
   reload.

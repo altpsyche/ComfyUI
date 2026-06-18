@@ -88,8 +88,8 @@ DOCS = {
      "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",
      "Wildcards (__framing__/__angle__/__pose__/__expression__/__background__/__lighting__) live in "
      "custom_nodes/ComfyUI-Impact-Pack/wildcards/.",
-     "Full guide (setup, anatomy, instruction system, tuning, troubleshooting): tools/lora_train/README.md "
-     "section 6; training knobs: tools/lora_train/REFERENCE.md."]),
+     "Full guide (setup, anatomy, instruction system, tuning, troubleshooting): "
+     "tools/lora_train/DATASET.md; training knobs: tools/lora_train/REFERENCE.md."]),
 }
 
 

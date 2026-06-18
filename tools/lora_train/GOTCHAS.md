@@ -1,8 +1,8 @@
 # Gotchas + dead ends — read before changing things
 
-Hard-won lessons. README §13 says why the current design is good; **this file says what NOT to undo**
-and what will silently bite you. If something here looks "obviously improvable," it was probably already
-tried — check before reverting.
+Hard-won lessons. README's *Why it's built this way* covers the model-agnostic rationale; **this file
+says what NOT to undo**, the SDXL/Qwen/Blackwell-specific reasons, and what will silently bite you. If
+something here looks "obviously improvable," it was probably already tried — check before reverting.
 
 ## Don't re-do these (tried, reverted)
 
@@ -34,7 +34,8 @@ tried — check before reverting.
   a fresh clone won't have them — re-create them if you set up elsewhere. See [WILDCARDS.md](WILDCARDS.md).
 - **"Same face" across outfit variants is not pixel-identical.** A `like:` variant re-renders its own hero
   with the new outfit in the prompt, and trains a separate LoRA — faces are recognizably the same person.
-  Pin `hero_seed` + a tight `id` to maximize the match. (Full note: README §5 / characters.toml comments.)
+  Pin `hero_seed` + a tight `id` to maximize the match. (Full note: characters.toml comments;
+  ADD_CHARACTER.md "Same character, different outfit".)
 - **Training defaults live in `train.toml`, not the .ps1.** Don't expect `dim 16` / `steps 1500` hardcoded
   in `train_lora.ps1`'s `param()` block — they resolve from `train.toml [defaults]`. **Precedence (highest
   wins): explicit CLI flag > `-Profile` > `[train.<char>]` > `[defaults]`.** If a value "won't take
@@ -57,6 +58,7 @@ tried — check before reverting.
 
 ## If you change the generator
 
+Package map + how a graph is assembled + the regenerate/test loop: **[../il_graphs/ARCHITECTURE.md](../il_graphs/ARCHITECTURE.md)**.
 All workflow changes go through `tools/il_graphs/` (edit the Python, never the generated JSON/md) then
 `python tools/build_il_graphs.py`. The roster itself is data — `tools/il_graphs/characters.toml`, not
 Python. New custom nodes = git submodules. **The build now validates every graph it writes** and

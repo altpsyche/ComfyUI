@@ -1,518 +1,162 @@
-# Character LoRA training — complete guide (A → Z)
+# Character LoRA training
 
-> In a hurry? **[QUICKSTART.md](QUICKSTART.md)** — the whole loop, commands only.
-> Steering pose/angle/scene variety? **[WILDCARDS.md](WILDCARDS.md)**.
-> Before changing the pipeline? **[GOTCHAS.md](GOTCHAS.md)** — dead ends + traps, don't re-do them.
+Train one LoRA per character so it renders **identically every time** in any IL_* workflow. Text
+prompts and IPAdapter both drift; a trained LoRA is the only thing that locks an exact identity. This
+kit takes you from "no images" to "trained LoRA in the LoRA bank", fully scripted — no per-character
+file copies, no manual moving.
 
+## Where to start
 
-Train one LoRA per character so that character renders **identically every time** in any IL_*
-workflow. Text prompts and IPAdapter both drift; a trained LoRA is the only thing that locks an
-exact identity. This kit takes you from "no images" to "trained LoRA loaded in the LoRA bank",
-fully scripted — no per-character file copies, no manual file moving.
+| You want to… | Read |
+|---|---|
+| Run the whole loop, commands only | **[QUICKSTART.md](QUICKSTART.md)** |
+| Add a character without missing a step | **[ADD_CHARACTER.md](ADD_CHARACTER.md)** (the authoritative checklist) |
+| Understand how the dataset images are made | **[DATASET.md](DATASET.md)** (the Qwen-Image-Edit engine) |
+| Look up a knob / flag / command | **[REFERENCE.md](REFERENCE.md)** |
+| Steer pose/angle/scene variety | **[WILDCARDS.md](WILDCARDS.md)** |
+| Change the pipeline (don't re-discover dead ends) | **[GOTCHAS.md](GOTCHAS.md)** |
+| Extend the workflow generator (code) | **[../il_graphs/ARCHITECTURE.md](../il_graphs/ARCHITECTURE.md)** |
 
-## Contents
-1. [Mental model](#1-mental-model)
-2. [TL;DR](#2-tldr-the-whole-loop)
-3. [Prerequisites & hardware](#3-prerequisites--hardware)
-4. [Phase 0 — one-time trainer setup](#4-phase-0--one-time-trainer-setup)
-5. [Phase 1 — define the roster](#5-phase-1--define-the-roster)
-   - [Where to edit what (quick map)](#where-to-edit-what-quick-map)
-6. [Phase 2 — generate datasets in ComfyUI (Qwen-Image-Edit)](#6-phase-2--generate-datasets-in-comfyui-qwen-image-edit)
-7. [Phase 3 — curate](#7-phase-3--curate)
-8. [Phase 4 — caption + train](#8-phase-4--caption--train)
-9. [Phase 5 — use the LoRA](#9-phase-5--use-the-lora)
-10. [Tuning reference](#10-tuning-reference)
-11. [Troubleshooting](#11-troubleshooting)
-12. [File & setting reference](#12-file--setting-reference)
-13. [Why it's built this way](#13-why-its-built-this-way)
+This page owns the **concepts, setup, and the file map**. Each topic above has one owner — they
+cross-link, they don't repeat.
 
----
+## Mental model
 
-## 1. Mental model
+- **One character = one dataset = one LoRA file.** Five characters = five independent LoRAs that never
+  interfere; at render time you toggle whichever you want in the LoRA bank.
+- **The chicken-and-egg** (you can't make consistent images without a consistent character, but you
+  need consistent images to train one) is solved by **bootstrapping**: generate ONE good "hero"
+  portrait, propagate it onto many varied poses/angles/outfits, curate, train.
+- **The dataset doesn't need pixel-perfect faces** — just images that are *recognizably the same
+  person*. Curation drops outliers; the trained LoRA averages the rest into one stable identity. Don't
+  chase a perfect clone in the dataset.
+- **Identity comes from the dataset + trigger + training, not from pruning.** The `outfit` string is
+  auto-baked into the trigger so the costume is always-on; identity tags stay promptable by default.
 
-- **One character = one dataset = one LoRA file.** Five characters = five independent LoRAs that
-  never interfere. At render time you toggle whichever you want in the LoRA bank.
-- **The chicken-and-egg** (you can't make consistent images to train on, but you need consistent
-  images to train) is solved by **bootstrapping**: generate ONE good "hero" portrait, propagate
-  it onto many varied poses/angles/outfits, curate, train.
-- **The dataset doesn't need pixel-perfect faces** — it needs images that are *recognizably the
-  same person*. Curation drops the outliers; the trained LoRA averages the rest into one stable
-  identity. Don't chase a perfect clone in the dataset.
-
-**The dataset route: Qwen-Image-Edit (`IL_DatasetEdit_<name>`).** The generator emits one
-self-contained, two-stage graph per roster character. An image-edit model **re-poses the whole
-hero** (face + body + outfit) into new angles/poses/scenes while holding identity + your art style.
-It works for fully-original characters (no danbooru anchor needed). Curate → `train_lora.ps1`. The
-trained LoRA — not the dataset — delivers the final exact face.
+## The loop
 
 ```
-QWEN-EDIT route (self-contained, two stages):
-  STAGE 1: text2img the hero from the character's id tags in YOUR checkpoint (reroll Hero Seed, pick a face)
-     └─► STAGE 2: Qwen-Image-Edit-2511 re-poses that whole figure (holds identity + style)
-            └─ wildcard instruction varies framing/angle/pose/expression/background/lighting
-               ─► save ─► curate ─► train ─► LoRA
+characters.toml  ──build──▶  IL_DatasetEdit_<name>  ──generate──▶  output/dataset/<name>/
+   (id · outfit)              (Qwen-Image-Edit)         + curate
+                                                            │
+                          train_lora.ps1 ◀─ roster.json ◀──┘   ──▶  models/loras/<name>_v1.safetensors
+                          (caption + train)                          (toggle in any IL_* LoRA bank)
 ```
 
-## 2. TL;DR (the whole loop)
+1. **Define** — add a `[table]` to [`../il_graphs/characters.toml`](../il_graphs/characters.toml). → [ADD_CHARACTER.md](ADD_CHARACTER.md)
+2. **Generate** — `python tools/build_il_graphs.py`, open `IL_DatasetEdit_<name>`, queue ~40. → [DATASET.md](DATASET.md)
+3. **Curate** — keep the on-model 25–40 (min 12), delete in place.
+4. **Train** — `train_lora.ps1 -Char <name>` (or `train_all.ps1`). → [REFERENCE.md](REFERENCE.md)
+5. **Use** — toggle `<name>_v1` ON in any LoRA bank, strength ~0.75, add the trigger word.
 
-```powershell
-setup.bat --with-trainer                       # once: trainer venv (multi-GB)
-powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # once: Qwen-Edit model stack (~23 GB)
-python tools/build_il_graphs.py                # emits IL_DatasetEdit_<name> per roster char + roster.json
-# In ComfyUI open IL_DatasetEdit_<name> (self-contained):
-#   STAGE 1: reroll Hero Seed -> pick the face in HERO preview (rendered from the id, your style).
-#   STAGE 2: batch-queue the Edit-instruction seed ~40x -> output/dataset/<name>/; curate to 25-40.
-.\tools\lora_train\train_lora.ps1 -Char <name> # captions + trains  (or train_all.ps1 for the roster)
-# In any IL_* workflow: LoRA bank -> toggle <name>_v1 ON, strength ~0.75, add the trigger word.
-```
+## Prerequisites & hardware
 
-## 3. Prerequisites & hardware
-
-- **GPU:** the kit is tuned for a 16 GB NVIDIA card (RTX 5080 / Blackwell `sm_120`). SDXL LoRA
-  training fits in 16 GB with the defaults (bf16, batch 2, gradient checkpointing, unet-only).
-- **Blackwell note:** `sm_120` needs CUDA 12.8+ PyTorch; the default kohya torch won't run. Phase 0
+- **GPU:** tuned for a 16 GB NVIDIA card (RTX 5080 / Blackwell `sm_120`). SDXL LoRA training fits in
+  16 GB with the defaults (bf16, batch 2, gradient checkpointing, unet-only).
+- **Blackwell:** `sm_120` needs CUDA 12.8+ PyTorch; the default kohya torch won't run, so Phase 0
   installs `torch 2.7.0 cu128` into a dedicated venv. (Your ComfyUI venv runs cu130 — also fine.)
-- **uv** must be on PATH (the trainer venv uses Python 3.11; the ML stack needs ≤3.12, system Python is too new).
+- **uv** on PATH (the trainer venv is Python 3.11; the ML stack needs ≤3.12, system Python is too new).
 - **Models on disk:** the default base checkpoint `oneObsession_v19Atypical.safetensors` in
-  `models/checkpoints/` (renders the Stage-1 hero), plus the Qwen-Image-Edit stack that
-  `scripts/install_qwen_edit.ps1` downloads (see [§6.1](#61-one-time-setup)).
+  `models/checkpoints/` (renders the Stage-1 hero) + the Qwen-Image-Edit stack
+  ([DATASET.md](DATASET.md) installs it).
 
-## 4. Phase 0 — one-time trainer setup
-
-The trainer is **kohya-ss/sd-scripts**, vendored as a submodule at `tools/sd-scripts` (a fresh
-`setup.bat` initializes it in phase [2/6]). Its Python env lives at `tools/lora_train/.venv`,
-separate from ComfyUI's venv. Provision it:
+## Setup (once per machine)
 
 ```powershell
-setup.bat --with-trainer
+setup.bat --with-trainer                                                 # trainer venv (multi-GB)
+powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # Qwen-Edit stack (~23 GB)
 ```
-This runs `scripts/install_trainer.ps1`, which (idempotently):
-1. creates `tools/lora_train/.venv` via `uv` (Python 3.11),
-2. installs **torch 2.7.0 + torchvision (cu128)** for Blackwell,
-3. installs the sd-scripts requirements + **onnx/onnxruntime** (the WD14 tagger needs them; they're
-   commented out in sd-scripts' own requirements) + **prodigyopt** (the optimizer),
-4. runs `accelerate config default`,
-5. prints the GPU torch sees.
 
-Re-provision just the trainer (without a full setup):
-`powershell -ExecutionPolicy Bypass -File scripts\install_trainer.ps1`
+`setup.bat --with-trainer` runs `scripts/install_trainer.ps1`, which idempotently: creates
+`tools/lora_train/.venv` via `uv` (Python 3.11) · installs **torch 2.7.0 + torchvision (cu128)** ·
+the sd-scripts requirements + **onnx/onnxruntime** (the WD14 tagger needs them) + **prodigyopt** ·
+runs `accelerate config default`. Re-provision alone with
+`powershell -ExecutionPolicy Bypass -File scripts\install_trainer.ps1`.
 
-**Sanity check** (GPU compute + sd-scripts + tagger imports all work):
+The trainer is **kohya-ss/sd-scripts**, vendored as a submodule at `tools/sd-scripts`; its venv lives
+at `tools/lora_train/.venv`, separate from ComfyUI's. Sanity-check it:
 ```powershell
 tools\lora_train\.venv\Scripts\python.exe tools\lora_train\verify_env.py
 ```
-Expect `GPU bf16 matmul`, `sd-scripts library import`, `onnxruntime`, `prodigyopt`, `accelerate`,
-`dataset config TOML parses`, and `dataset wildcards present` all `[+]`.
+Expect `[+]` on: GPU bf16 matmul · sd-scripts import · onnxruntime · prodigyopt · accelerate · dataset
+TOML parses · wildcards present.
 
-## 5. Phase 1 — define the roster
-
-Edit the data file [`tools/il_graphs/characters.toml`](../il_graphs/characters.toml) — one `[table]`
-per character (no Python). Every table gets a **`roster.json`** line (name/trigger/id/outfit/prune — the
-trainer's source of truth) and an **`IL_DatasetEdit_<name>`** Qwen-Image-Edit graph.
-
-```toml
-[aria]
-id = "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"   # identity ONLY
-outfit = "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes"
-
-# SAME identity, DIFFERENT locked outfit -> a separate LoRA. `like` inherits aria's id + hero_seed + prune;
-# you write only the new outfit. The pattern for a character's costume changes in a comic.
-# (Faces are recognizably the same person, not pixel-identical -- see the `like` note below.)
-[aria_gala]
-like = "aria"
-outfit = "elegant emerald evening gown, long gloves, high heels"
-
-# minimal table: just identity, checkpoint picks the clothes; trigger defaults to kaelchar.
-[kael]
-id = "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)"
-```
-
-Field-by-field:
-- **`id`** — identity tags ONLY: hair (colour/length/style), eyes, face marks, body. **No outfit.**
-  This is the **Stage-1 hero prompt** in `IL_DatasetEdit_<name>` — be specific and weight the
-  face-defining tags (`(green eyes:1.1)`). The hero is rendered from it, then re-posed.
-- **`outfit`** — *(optional)* the signature clothes. It's appended to the Stage-1 hero so Qwen keeps it
-  across poses, **and auto-baked into the trigger at train time** — `train_lora` derives the prune from
-  this string (colour/style variants included), so the outfit renders identically in every scene with
-  **no manual tag-hunting**. Just describe the outfit once here. Leave `""` to let the checkpoint pick.
-- **`like`** — *(optional)* `"<other entry>"`: inherit that entry's `id` + `hero_seed` + `prune`
-  (same face + same identity lock; any field can still be overridden in the variant). Use for the
-  **same character in a different locked outfit** → a separate LoRA, same facial identity; you write only
-  the new `outfit`. The recommended pattern for comics (one locked LoRA per character+outfit).
-  **Caveat on "same face":** the variant re-renders its own Stage-1 hero with the *new outfit* in the
-  prompt, so even with the inherited `id` + seed the face is **recognizably the same person, not
-  pixel-identical** (the outfit tokens shift the diffusion trajectory; and the two are separate LoRAs on
-  separate datasets). To make them as close as possible, **pin `hero_seed`** on the parent (below) once
-  you've found a face you like, then keep the `id` tightly weighted. That's the same "recognizably the
-  same person" bar the dataset itself targets — good enough for consistent comic panels.
-- **`hero_seed`** — *(optional)* int pinning the Stage-1 hero face. Set it once you've rerolled to a face
-  you like, so `like` variants reuse the same hero seed (closest achievable face). Defaults to the shared seed.
-- **`prune`** — *(optional)* EXTRA tags to bake beyond the outfit (e.g. identity tags for a harder face
-  lock). Usually `""` — the outfit is already auto-baked; identity stays promptable. See [Phase 4](#8-phase-4--caption--train).
-- **`trigger`** — the caption keyword (default `<name>char`, e.g. `ariachar`). Use a *rare* string.
-
-Then **regenerate**:
-```powershell
-python tools/build_il_graphs.py
-```
-This writes one **`IL_DatasetEdit_<name>`** workflow per entry (e.g. `IL_DatasetEdit_aria`) to
-`user/default/workflows/`, plus `tools/lora_train/roster.json` (name / trigger / id / outfit / prune) that the
-train scripts read. (Stale dataset graphs from removed/renamed characters — and any legacy
-`IL_Dataset_<name>` from the retired hero+IPAdapter route — are pruned automatically on regenerate.)
-
-> **The training bridge is folder-based:** any dataset workflow just needs to save to
-> `output/dataset/<name>/`. `train_lora.ps1 -Char <name>` and `train_all.ps1` (which iterates
-> `roster.json`) then pick it up — independent of which workflow produced the images.
-
-### Where to edit what (quick map)
+## Where to edit what
 
 Two kinds of change: **config/graph** edits need a `python tools/build_il_graphs.py` regenerate (then
-re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/queue the graph, no regenerate.
+re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/queue the graph.
 
 | Want to change | Edit | After |
 |---|---|---|
-| **Add / remove a character** | a `[table]` in [`tools/il_graphs/characters.toml`](../il_graphs/characters.toml) | regenerate |
-| **Same character, new locked outfit** | add a `[table]` with `like = "<char>"` + its own `outfit` | regenerate (own LoRA, same identity; pin `hero_seed` to maximize face match) |
+| **Add / remove a character** | a `[table]` in [`characters.toml`](../il_graphs/characters.toml) | regenerate |
+| **Same character, new locked outfit** | a `[table]` with `like = "<char>"` + its own `outfit` | regenerate (own LoRA, same identity; pin `hero_seed`) |
 | **Signature outfit** (auto-locked) | that table's `outfit` (auto-baked into the trigger at train) | regenerate |
 | **Character identity** (face/hair/eyes) | that table's `id` (Stage-1 hero prompt) | regenerate |
 | **Trigger / pruned tags** | `trigger` / `prune` in the table | regenerate (rewrites `roster.json`) |
-| **Poses** | `custom_nodes/ComfyUI-Impact-Pack/wildcards/pose.txt` | reload graph |
-| **Camera angles** | `…/wildcards/angle.txt` | reload graph |
-| **Expressions** | `…/wildcards/expression.txt` | reload graph |
-| **Framing** (full body / close-up) | `…/wildcards/framing.txt` | reload graph |
-| **Backgrounds / scenes** | `…/wildcards/background.txt` | reload graph |
-| **Lighting** | `…/wildcards/lighting.txt` | reload graph |
+| **Pose / angle / expression / framing / background / lighting** | the matching `custom_nodes/ComfyUI-Impact-Pack/wildcards/*.txt` | reload graph ([WILDCARDS.md](WILDCARDS.md)) |
 | **The edit instruction template** | `wtext` in `build_dataset_edit()` ([`graphs.py`](../il_graphs/graphs.py)) | regenerate |
-| **Hero render** (checkpoint / sampler / steps / size) | `CKPT`, `BASE_*`, `REF_SUFFIX` in `config.py` | regenerate |
-| **Qwen-Edit knobs** (LoRA strengths, KSampler steps) | `build_dataset_edit()` in `graphs.py` | regenerate |
+| **Hero render** (checkpoint / sampler / steps / size) | `CKPT`, `BASE_*`, `REF_SUFFIX` in [`config.py`](../il_graphs/config.py) | regenerate |
+| **Qwen-Edit knobs** (LoRA strengths, KSampler steps) | `build_dataset_edit()` in [`graphs.py`](../il_graphs/graphs.py) | regenerate |
 | **Qwen-Edit quant** (VRAM/speed) | `scripts/install_qwen_edit.ps1 -Quant Q4_K_M` | re-run installer |
-| **Training params** (rank / optimizer / steps / LR / resolution …) | `train.toml` (`[defaults]` / `[profiles.*]` / `[train.<char>]`) or `train_lora.ps1` flags — full matrix in [REFERENCE.md](REFERENCE.md) | n/a |
+| **Training params** (rank / optimizer / steps / LR / resolution …) | `train.toml` or `train_lora.ps1` flags — matrix in [REFERENCE.md](REFERENCE.md) | n/a |
 
-> ⚠️ The wildcard `.txt` files live inside the **Impact-Pack submodule** (untracked by this fork), so
-> they exist on this machine but a fresh clone won't have them. Editing them is per-machine.
-> One wildcard line = one random option per queue; add lines (e.g. `from below`, `dutch angle`) to widen variety.
+> **The training bridge is folder-based:** any dataset workflow just needs to save to
+> `output/dataset/<name>/`; `train_lora.ps1 -Char <name>` and `train_all.ps1` pick it up regardless of
+> which workflow produced the images. The wildcard `.txt` files live inside the **Impact-Pack
+> submodule** (untracked by this fork) — they exist on this machine but a fresh clone won't have them.
 
-## 6. Phase 2 — generate datasets in ComfyUI (Qwen-Image-Edit)
+## Why it's built this way
 
-`IL_DatasetEdit_<name>` is the strongest 2026 way to build a dataset for a **fully-original**
-character (one that doesn't resemble any known danbooru character, so a text tag can't carry the
-face). The graph is **self-contained and two-stage**: **Stage 1** renders ONE hero from the
-character's `id` tags in your own checkpoint (you reroll a fixed **Hero Seed** and pick the face you
-like); **Stage 2** lets an **image-edit model re-pose that entire hero** — face, hair, body, outfit
-— into new camera angles, poses, and scenes, preserving identity *and* the art style. So a brand-new
-character needs **no pre-existing image**: the graph makes the hero, then propagates it.
+- **Edit-model bootstrap.** An image-edit model (Qwen-Image-Edit-2511) re-poses the *whole figure* from
+  one hero, giving real pose/angle/scene variety with the same person — the higher-consistency way to
+  bootstrap an original character. Rendering the hero in your own checkpoint keeps frames on-style.
+- **Hero as the single anchor.** One fixed-seed face, propagated, beats hoping every text gen lands the
+  same face. The dataset only needs *recognizably the same person*; the LoRA produces the exact face.
+- **Roster + per-character graphs.** Adding a character is one config entry, not edited scripts —
+  scales to N characters with no copy-paste.
+- **Data-driven training params.** Hyperparameters live in `train.toml` (layered defaults / profiles /
+  per-char), not hardcoded in the `.ps1`. → [REFERENCE.md](REFERENCE.md)
+- The SDXL/Qwen/Blackwell-specific choices (GGUF+Lightning for 16 GB, Prodigy + `--sdpa`, two venvs,
+  CLIP-skip −2) and what NOT to undo are in [GOTCHAS.md](GOTCHAS.md).
 
-**Bootstrap, explained.** "Text drifts" is about getting the *same* face across *many* gens — but
-you only need **one** face, and a single text2img gives you one. Stage 1 is that single render
-(reroll the Hero Seed until you like it); Stage 2 does the consistency work by editing that one
-image, not by re-prompting.
-
-**Why it preserves your style.** Edit models are conditioned on the *input image* and only change
-what the instruction asks. Because the hero is rendered in **your Illustrious checkpoint** (Stage 1),
-every edited frame stays in that style — no "realism drift" from the edit model. (You can optionally
-add an Illustrious img2img low-denoise re-skin pass afterward, but in practice it isn't needed.)
-
-### 6.1 One-time setup
-
-The model is **Qwen-Image-Edit-2511**, run as a quantized **GGUF** so it fits a 16 GB GPU. It needs
-the **ComfyUI-GGUF** custom node (added as a submodule by `setup.bat`; if missing, run
-`git submodule update --init custom_nodes/ComfyUI-GGUF` then install its `requirements.txt` into the
-ComfyUI venv).
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1
-#   -Quant Q4_K_M   # smaller/faster, lower quality   (default Q5_K_M)
-#   -SkipAnglesLora # skip the camera-angles LoRA
-```
-This idempotently downloads (≈23 GB total) into the right `models/` subfolders:
-
-| File | → folder | Role |
-|---|---|---|
-| `qwen-image-edit-2511-Q5_K_M.gguf` (~15 GB) | `models/unet/` | the edit diffusion model (GGUF) |
-| `qwen_2.5_vl_7b_fp8_scaled.safetensors` (~9 GB) | `models/text_encoders/` | the Qwen 2.5-VL text/vision encoder |
-| `qwen_image_vae.safetensors` (~250 MB) | `models/vae/` | the Qwen-Image VAE |
-| `Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors` (~850 MB) | `models/loras/` | 4-step distillation (makes 16 GB practical) |
-| `qwen-image-edit-2511-multiple-angles-lora.safetensors` (~295 MB) | `models/loras/` | drives camera-angle variety |
-
-> **Quant guide (16 GB):** `Q5_K_M` is the sweet spot (usable quality, fits with the encoder
-> offloaded to RAM). `Q4_K_M` if you OOM or want speed (noticeably weaker). `Q6_K` only with VRAM
-> headroom. Re-run the installer with a different `-Quant` to swap; it skips files already present.
-
-Then `python tools/build_il_graphs.py` emits one **`IL_DatasetEdit_<name>`** workflow per roster
-character — Stage-1 prompt (the `id`), Stage-2 model, and `dataset/<name>/<name>` save prefix all
-pre-wired.
-
-### 6.2 Graph anatomy (`IL_DatasetEdit_<name>`)
-
-| Group | Does |
-|---|---|
-| **STAGE 1 — Hero generator (Illustrious)** | `CheckpointLoaderSimple` + `CLIPSetLastLayer −2` + the character's `id` prompt + `KSampler` (euler_a/normal/30/cfg5, fixed **Hero Seed**) → `VAEDecode` → **HERO preview**. Renders the single hero in your style — no input image needed. |
-| **STAGE 2 — Qwen-Edit model + LoRAs** | `UnetLoaderGGUF` (Q5) → `LoraLoaderModelOnly` ×2 (Lightning 1.0, multiple-angles 0.8) → `ModelSamplingAuraFlow` (shift 3.1) → `CFGNorm` (1.0). The exact model-patch chain the official 2511 template uses. |
-| **Encoders + scale** | `CLIPLoader` (qwen2.5-vl-7b, type `qwen_image`), `VAELoader` (qwen_image_vae), `FluxKontextImageScale` (scales the hero to the model's pixel budget — fed by Stage 1). |
-| **Instruction + encode** | **`Edit instruction`** (`ImpactWildcardProcessor`, **mode `populate`** — see [§6.4](#64-the-edit-instruction-driving-variety)) → `TextEncodeQwenImageEditPlus` (positive: scaled hero + instruction) and a second one (negative: empty). Each conditioning passes a `FluxKontextMultiReferenceLatentMethod` node (kept ON — required for the repackaged GGUF build). `VAEEncode` turns the scaled hero into the init latent. |
-| **Edit + decode** | `KSampler` (Lightning: **6 steps / cfg 1.0 / euler / simple / denoise 1.0**) → `VAEDecode`. |
-| **Finish + Save** | `SaveImage` prefix `dataset/<name>/<name>` → `output/dataset/<name>/`. |
-
-### 6.3 Step-by-step
-
-1. **Open `IL_DatasetEdit_<name>`** (re-open after any regenerate — ComfyUI caches loaded graphs).
-   Everything is pre-wired from the roster.
-2. **Stage 1 — pick the face.** Reroll the **Hero Seed** and watch **HERO preview** until you like
-   the rendered face (it comes from this character's `id` tags in your checkpoint). Then leave Hero
-   Seed **fixed** on that value — that single image is now the identity anchor.
-3. **Stage 2 — confirm variety.** The **Edit instruction** node is `mode: populate` with its seed
-   control **randomize**. Each queue the bottom box shows the resolved prompt and re-rolls — a new
-   framing/angle/pose/expression/background/lighting. (Headless API POSTs have no UI to populate, but
-   the wildcards also live in `populated_text`, so the node backend expands them on the seed there too.)
-4. Set the **batch count** beside Queue to ~40 and **Queue once** → ~40 varied frames stream into
-   `output/dataset/<name>/`. (One edit per queue — so use a higher batch count than a batched txt2img.)
-5. Proceed to [curate](#7-phase-3--curate) and [train](#8-phase-4--caption--train)
-   (`train_lora.ps1 -Char <name>`, or `train_all.ps1` to do every roster character).
-
-### 6.4 The edit instruction (driving variety)
-
-The positive prompt is produced by **`ImpactWildcardProcessor`**, whose text ships as:
-```
-same character, identical face and hair and outfit, keep the same art style,
-__angle__, __pose__, __expression__, __framing__, __background__, __lighting__
-```
-- **Keep `__angle__/__pose__` leading.** A "lead with the imperative change" rewrite
-  (`Change the shot to __framing__ … Re-pose to __pose__ …`) was tried and **reverted**: putting
-  `__framing__` and the scene first made Qwen — conservative at 6 steps — spend its edit budget on the
-  easy global changes (zoom/background/lighting) and move the **pose** much less. The identity-preamble
-  comma-list above, with angle/pose first, gives noticeably more pose variety. Append new axes after
-  pose; don't reorder pose behind them.
-- **`mode: populate` + wildcards in `populated_text`.** In the UI, `populate` re-expands `wildcard_text`
-  into the (bottom, read-only) `populated_text` box on every queue, so you **see the resolved prompt**
-  and it re-rolls. The generator also seeds `populated_text` with the wildcard string itself (not a
-  concrete roll), so a **headless API POST** — which has no frontend to populate — still expands the
-  wildcards in the node backend (`doit()` → `process(populated_text, seed)`), keyed on the seed. (The
-  earlier sameness on *headless* runs came from a *concrete, wildcard-free* `populated_text` default that
-  left the API stuck on one prompt; in the UI the roll was always working.)
-- `__angle__/__pose__/__expression__/__framing__/__background__/__lighting__` are Impact-Pack
-  wildcards (one random line each per roll, from `custom_nodes/ComfyUI-Impact-Pack/wildcards/*.txt`).
-  Edit those `.txt` files to steer the kind of variety you want (add `from below`, `dutch angle`, etc.).
-- The **multiple-angles LoRA** (strength **0.8**) reinforces camera-angle changes; raise toward 1.0 for
-  more angle push, lower if identity drifts.
-
-### 6.5 Tuning dials (live in the graph)
-
-| Symptom | Dial |
-|---|---|
-| Poses too similar | confirm the seed control = randomize and the bottom box re-rolls; keep `__angle__/__pose__` leading the instruction (don't move them behind framing/scene); raise the **multiple-angles LoRA** (0.8 → 1.0); add lines to `pose.txt`/`angle.txt` |
-| Identity drifts across frames | lower **multiple-angles LoRA** strength (0.8 → 0.6); trim the scene axes (`__background__/__lighting__`); use a cleaner hero |
-| Soft / low-detail output | raise **KSampler steps** (6 → 8–10) — still with the Lightning LoRA; cfg can stay 1.0 |
-| Style drifts from your checkpoint | ensure the hero was rendered in your checkpoint; optionally add an IL img2img re-skin (denoise 0.25–0.35) after |
-| Too slow per frame | per-frame compute is fixed by KSampler steps (6) + the model stack — the instruction/wildcards add none. If it slowed down, suspect a cold reload of the 24 GB stack after regenerate, other GPU apps, or VRAM pressure (encoder offload). Time it across a few frames; use `-Quant Q4_K_M` if the encoder swap is the bottleneck. |
-| Output too zoomed/cropped | the ref is auto-scaled by `FluxKontextImageScale`; add framing words to `framing.txt` |
-
-If you settle on better defaults (LoRA strengths, steps, instruction), bake them into
-`build_dataset_edit()` in `tools/il_graphs/graphs.py` so regenerations keep them.
-
-## 7. Phase 3 — curate
-
-Open `output/dataset/<name>/` and **delete in place** (no moving — they're already where the trainer
-reads them):
-- melted / distorted faces, wrong identity (off-model), bad hands cropping the face, near-duplicates.
-Keep the best **25–40**, varied in pose/angle/expression/scene. Minimum to train is **12**.
-
-Repeat Phases 2–3 for each character (open that character's `IL_DatasetEdit_<name>` graph).
-
-## 8. Phase 4 — caption + train
-
-One command per character, or the whole roster:
-```powershell
-.\tools\lora_train\train_lora.ps1 -Char aria      # one
-.\tools\lora_train\train_all.ps1                  # every character that has a curated dataset
-```
-
-### What `train_lora.ps1` does
-1. **Validates** `output/dataset/<Char>/` exists and has ≥ `-MinImages` (12).
-2. **Auto-captions** (if no `.txt` present): runs the **WD14 tagger**
-   (`SmilingWolf/wd-v1-4-convnextv2-tagger-v2`) to write booru tags, then `prep_captions.py`
-   prepends the **trigger** and removes the outfit + prune tags (tolerant head-noun / synonym match,
-   not exact — see [Outfit lock](#outfit-lock--prune-mostly-automatic) below). Trigger / outfit / prune
-   come from `roster.json` unless you pass `-Trigger` / `-Outfit` / `-Prune`.
-3. **Derives `num_repeats`** from the target step count: `repeats = round(Steps × Batch / (images ×
-   Epochs))` — so 15 or 50 images both land near the target step count.
-4. **Writes** `tools/lora_train/.cache/<Char>.toml` (the sd-scripts dataset config).
-5. **Trains** via `accelerate launch sdxl_train_network.py` (from the submodule dir).
-
-### Parameters
-Training params are **data-driven and layered**: defaults live in
-[`train.toml`](train.toml) `[defaults]`, with named `[profiles.*]` and optional per-character
-`[train.<char>]` overrides; CLI flags override for one run. **Precedence (highest wins): CLI flag >
-`-Profile` > `[train.<char>]` > `[defaults]`.** The complete flag↔key matrix is in
-[REFERENCE.md](REFERENCE.md); the common ones:
-
-| Param | Default | Meaning |
-|---|---|---|
-| `-Char` | (required) | dataset folder name + LoRA output name |
-| `-Trigger` | roster / `<Char>char` | caption keyword you'll type at inference |
-| `-Prune` | roster / `""` | exact tags to bake into the trigger (e.g. `"auburn hair,green eyes"`) |
-| `-Base` | oneObsession | base checkpoint to train on |
-| `-Dim` / `-Alpha` | 16 / 8 | LoRA rank / alpha (try 32 / 16 for visually complex characters) |
-| `-Optimizer` | `prodigy` | `prodigy` \| `adamw` \| `adafactor` (see note below — **not** adamw8bit) |
-| `-DCoef` | 1.0 | Prodigy `d_coef`; lower (≈0.8) to reduce overcook on small sets |
-| `-Steps` | 1500 | TARGET total steps (drives repeats) |
-| `-Epochs` | 4 | saves one LoRA per epoch -> N checkpoints to pick from. Total steps stay ~= `-Steps` (repeats compensate), so this is checkpoint granularity, not training amount. |
-| `-Batch` | 2 | batch size (raise if you have VRAM headroom) |
-| `-TrainTextEncoder` | off | also train the text encoder (stronger, more VRAM) |
-| `-SkipCaption` | off | use existing captions, don't re-tag |
-| `-Profile` | (none) | apply a `train.toml` preset bundle: `fast` \| `quality` \| `complex` |
-| `-DryRun` | off | print the resolved params + exact `accelerate` command + dataset TOML, train nothing |
-| *(more)* | `train.toml` | `-Lr`/`-UnetLr`/`-TextEncoderLr`, `-Scheduler`, `-MinSnr`, `-Resolution`, `-SavePrecision`, `-SaveEveryNEpochs`, `-BucketMin`/`-BucketMax` — see [REFERENCE.md](REFERENCE.md) |
-
-**Optimizer choice (community-consensus vs our defaults).** Several Illustrious guides report Prodigy
-can "burn" / not suit IL well and prefer **AdamW** or **AdaFactor** with explicit LRs (UNet ~3e-4, TE
-~3e-5) — though there's a pro-Prodigy camp too, so it's genuinely contested. We keep **Prodigy as the
-default** (auto-LR, no extra deps) and expose `-Optimizer adamw|adafactor` to A/B it. We deliberately
-**do not** offer AdamW8bit: it needs `bitsandbytes`, which is unverified on Blackwell `sm_120` (the
-exact wheel pain Prodigy avoids). There is also **no `-ClipSkip`**: `sdxl_train_network.py` ignores
-clip_skip for SDXL (it warns and no-ops) — the inference-side CLIP skip −2 is unrelated to training.
-
-### sd-scripts settings (resolved from `train.toml [defaults]`)
-These are the `train.toml [defaults]` (override per the precedence above; see [REFERENCE.md](REFERENCE.md)):
-LoRA `networks.lora` dim 16 / alpha 8 · optimizer **Prodigy** (default) lr 1.0 (`decouple`,
-`weight_decay=0.01`, `d_coef=$DCoef`, `use_bias_correction`, `safeguard_warmup`) — selectable via
-`-Optimizer` (adamw / adafactor at LR 3e-4) · `cosine` ·
-`min_snr_gamma 5` · resolution 1024 + bucketing 768–1280 · **bf16** · batch 2 ·
-`gradient_checkpointing` · `cache_latents_to_disk` · **`--sdpa`** (no xformers — avoids Blackwell
-wheel pain) · `no_half_vae` · `--network_train_unet_only` (unless `-TrainTextEncoder`) · seed 42.
-`PYTHONUTF8=1` is set so sd-scripts' unicode progress doesn't crash the cp1252 console.
-
-**Output:** `models/loras/<Char>_v1.safetensors` plus one checkpoint per epoch
-(`<Char>_v1-000001.safetensors` …).
-
-### Outfit lock + prune (mostly automatic)
-- A tag **kept** in captions → the model ties that look to the word → **promptable** (changeable).
-  A tag **removed** (and visually constant) → folds into the **trigger** → always appears, hard to change.
-- **The outfit is auto-locked — you do nothing.** `train_lora` reads the entry's `outfit` from
-  `roster.json` and passes it to `prep_captions`, which removes every caption tag whose **head-noun**
-  matches an outfit garment — including colour/style variants the tagger invents. So `outfit: "teal and
-  white tennis dress, white visor, white shoes"` locks the tagger's `white dress`, `tennis dress`,
-  `dress`, `visor`, `white footwear`, etc. No exact-tag hunting, no opening caption files. (Footwear,
-  shorts, and top synonyms are clustered so `shoes` also catches `footwear`/`sneakers`.)
-- **Face likeness** comes from the consistent dataset + the trigger + training — not from pruning. We
-  leave identity tags **promptable** by default (`prune=""`). If you want a *harder* face lock, add
-  identity tags to `prune` (e.g. `-Prune "auburn hair,green eyes,freckles"`) — they're matched the same
-  tolerant way. For tougher likeness also try `-TrainTextEncoder` or `-Dim 32`.
-- `prune` is for **extras only** (matched by exact tag or head-noun, plus the footwear/etc. clusters).
-  You rarely need it — the outfit is already handled by `outfit`.
-
-## 9. Phase 5 — use the LoRA
-
-1. Open any IL_* workflow (IL_1_Base, IL_5_Max, …). Every graph has a **`LoRA bank`** node
-   (`Power Lora Loader`) right after the checkpoint.
-2. Toggle `<Char>_v1` **ON**, strength **~0.75**.
-3. Put the **trigger word** (`ariachar`) in the Positive prompt.
-4. Identity now flows through the base render **and** every detail pass automatically (the bank sits
-   upstream of everything).
-
-**Pick the best epoch:** in IL_1_Base, XY-plot LoRA strength {0.5, 0.75, 0.9} × a few seeds with the
-trigger, across the per-epoch files. Choose the epoch/strength that holds identity without frying
-the model's style.
-
-## 10. Tuning reference
-
-| Goal | Dial |
-|---|---|
-| Identity drifts across edited frames | lower multiple-angles LoRA (1.0→0.6); trim the instruction's scene clause; use a cleaner hero — see [§6.5](#65-tuning-dials-live-in-the-graph) |
-| Poses too similar | confirm Edit-instruction seed control = randomize; add lines to `angle.txt`/`pose.txt`/`framing.txt` |
-| Soft / low-detail edits | KSampler steps 6→8–10 (keep Lightning, cfg 1.0) |
-| Too slow / OOM (16 GB) | `install_qwen_edit.ps1 -Quant Q4_K_M`; close other GPU apps |
-| LoRA identity weak at inference | train strength ↑ (0.75→0.9), add `-TrainTextEncoder`, more steps |
-| LoRA under-baked / low fidelity | `-Dim 32 -Alpha 16` (more capacity for complex characters) |
-| LoRA burns / overcooked | `-DCoef 0.8` (Prodigy) or `-Optimizer adamw` (3e-4); fewer steps |
-| LoRA overfits dataset poses | fewer `-Steps`/`-Epochs`, more varied dataset |
-| LoRA fries style / too strong | LoRA bank strength ↓ (0.75→0.6), lower `-Dim`/`-Alpha` |
-
-## 11. Troubleshooting
-
-| Symptom | Cause / fix |
-|---|---|
-| Node/changes not showing in ComfyUI | A loaded graph is cached — **re-open** the workflow after regenerating. |
-| Images for all characters in one folder | Old prefix bug; ensure SaveImage prefix is `dataset/<name>/<name>` (regenerate). |
-| Every frame is the same pose/angle | First the *prompt* must roll (Edit-instruction `mode: populate`, seed control = randomize — the bottom box should change each queue). If the prompt rolls but the *image* doesn't follow, that's Qwen being conservative: keep `__angle__/__pose__` leading the instruction (a framing-first phrasing buries them) and raise the multiple-angles LoRA toward 1.0. Headless API POSTs need the seed-randomizing runner (`convert_and_run.py`); a raw POST keeps the saved seed. |
-| Generation feels slower | Per-frame compute is set by KSampler steps (6) + the model stack — the instruction/wildcards add none, so a real slowdown is environmental: a cold 24 GB reload after regenerate, other GPU apps, or VRAM pressure (the 9 GB encoder offloads to RAM). Time a few frames; `-Quant Q4_K_M` if the encoder swap dominates. |
-| `__pose__` etc. appear literally in the image | Wildcard file missing or wrong path; files go in `custom_nodes/ComfyUI-Impact-Pack/wildcards/`; reload graph. |
-| `train_lora.ps1` "no dataset" | Generate to `output/dataset/<Char>/` first (SaveImage prefix `dataset/<Char>`). |
-| "only N images (need ≥12)" | Generate/curate more, or lower `-MinImages`. |
-| kohya errors `sm_120 not supported` | Trainer torch isn't cu128 — re-run `scripts/install_trainer.ps1`. |
-| `UnicodeEncodeError` (cp1252) during train | `PYTHONUTF8=1` (the scripts set it; set it manually if you run sd-scripts directly). |
-| OOM during training | drop `-Batch 1`, keep `--network_train_unet_only`. |
-| `ImpactWildcardProcessor` missing/red | Impact-Pack not loaded — `setup.bat` / `install_node_reqs.ps1`. |
-| `UnetLoaderGGUF` missing/red | ComfyUI-GGUF not loaded — `git submodule update --init custom_nodes/ComfyUI-GGUF` + install its `requirements.txt`. |
-| Model not in a dropdown | not downloaded — run `scripts/install_qwen_edit.ps1`; confirm it landed in the listed `models/` subfolder. |
-| Edited frame ignores the hero | confirm Stage-1 `Hero decode` feeds **Scale ref**, and that feeds **image1** on both encoders; keep the reference-method nodes ON. |
-| Output not anime / off-style | Stage 1 renders in your checkpoint (`CKPT`) so it should match; if off, tighten `id` or add an IL img2img re-skin pass. |
-| Stage-1 hero looks wrong | tighten the character's `id` tags (weight face-defining ones); reroll the Hero Seed for a better face. |
-
-## 12. File & setting reference
+## File & setting reference
 
 ```
 tools/
   il_graphs/characters.toml   the roster (one [table] per character) — edit here to add a character
   il_graphs/config.py         loads characters.toml; base ckpt/VAE/sampler, REF_SUFFIX
   il_graphs/graphs.py         build_dataset_edit() — IL_DatasetEdit_<name> (Qwen-Image-Edit)
-  il_graphs/templates.py      node schemas (harvest + EXTRA_TEMPLATES incl. the Qwen-Edit nodes)
+  il_graphs/ARCHITECTURE.md   how the generator package is built (extend it here)
   build_il_graphs.py          regenerate all IL_* workflows + roster.json (+ validates them)
   validate_workflow.py        pre-flight a workflow (models/wildcards/embeddings + rules)
   sd-scripts/                 kohya trainer (submodule)
   tests/                      pytest suite (build/golden/cfg/prep/train_config/docs)
   lora_train/
-    README.md                 this file
+    README.md                 this file — concepts, setup, file map
+    QUICKSTART.md             the whole loop, commands only
+    ADD_CHARACTER.md          add-a-character checklist (authoritative procedure)
+    DATASET.md                the Qwen-Image-Edit dataset engine
     REFERENCE.md              every command + the full training-param matrix
+    GOTCHAS.md                dead ends + traps — read before changing the pipeline
+    WILDCARDS.md              steering dataset variety
     train.toml                training hyperparams: [defaults] / [profiles.*] / [train.<char>]
     train_config.py           resolves train.toml (defaults < per-char < profile < CLI) -> JSON
+    train_lora.ps1            caption + train one character (-Profile / -DryRun / param flags)
+    train_all.ps1             train the whole roster
+    prep_captions.py          trigger-prepend + auto-bake outfit (tolerant) + extra prune (--dry-run)
+    verify_env.py             venv sanity check
     .venv/                    trainer venv (uv, py3.11, torch cu128)   [gitignored]
     roster.json               name/trigger/id/outfit/prune manifest   [gitignored, generated]
     .cache/<char>.toml        generated dataset configs               [gitignored]
-    prep_captions.py          trigger-prepend + auto-bake outfit (tolerant) + extra prune (--dry-run)
-    train_lora.ps1            caption + train one character (-Profile / -DryRun / param flags)
-    train_all.ps1             train the whole roster
-    verify_env.py             venv sanity check
 custom_nodes/ComfyUI-Impact-Pack/wildcards/   framing/angle/pose/expression/background/lighting .txt
 custom_nodes/ComfyUI-GGUF/     GGUF loader node (submodule; required by IL_DatasetEdit)
 output/dataset/<name>/        your generated + curated images
-models/loras/<name>_v1.safetensors        trained output
-models/unet/qwen-image-edit-2511-Q5_K_M.gguf          Qwen-Edit diffusion model   [gitignored]
-models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors  Qwen-Edit encoder     [gitignored]
-models/vae/qwen_image_vae.safetensors                 Qwen-Edit VAE               [gitignored]
-models/loras/Qwen-Image-Edit-2511-Lightning-*.safetensors   4-step distill LoRA   [gitignored]
-models/loras/qwen-image-edit-2511-multiple-angles-lora.safetensors  angles LoRA   [gitignored]
+models/loras/<name>_v1.safetensors        trained output (+ one checkpoint per epoch)
 scripts/install_trainer.ps1   builds the trainer venv (setup.bat --with-trainer)
-scripts/install_qwen_edit.ps1 downloads the Qwen-Image-Edit-2511 stack (IL_DatasetEdit)
+scripts/install_qwen_edit.ps1 downloads the Qwen-Image-Edit-2511 stack (see DATASET.md)
 ```
 
-Key defaults — **training**: LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps.
-**Stage-1 hero**: checkpoint `oneObsession_v19Atypical` · VAE `sdxl_vae_f16_fix` · CLIP skip −2 ·
-CFG 5 · sampler `euler_ancestral`/`normal`/30 · 832×1216 · seed `1234567890`.
-**Qwen-Edit (Stage 2)**: GGUF Q5 · Lightning **6 steps / cfg 1.0 / euler / simple** ·
-ModelSamplingAuraFlow shift 3.1 · CFGNorm 1.0 · multiple-angles LoRA 0.8 · reference method `index_timestep_zero`.
-
-## 13. Why it's built this way
-
-- **Edit-model bootstrap.** An image-edit model (Qwen-Image-Edit-2511) re-poses the *whole figure*
-  from one hero, so the dataset gets real pose/angle/scene variety with the same person — the modern,
-  higher-consistency way to bootstrap an original character. Rendering the hero in your own checkpoint
-  keeps the edited frames on-style.
-- **Hero as the single anchor.** One fixed-seed face, propagated, beats hoping every text gen lands
-  the same face. The dataset only needs *recognizably the same person*; the trained LoRA produces the
-  final exact face.
-- **Wildcards in `populated_text`, mode `populate`.** `populate` lets the UI show the resolved prompt
-  and re-roll each queue; seeding `populated_text` with the wildcard string (not a concrete roll) means
-  a headless API POST still expands in the node backend. The early headless sameness was a concrete,
-  wildcard-free default — not the populate mode itself; in the UI the roll always worked.
-- **Instruction keeps angle/pose first.** Qwen-Edit is conservative, so prompt *order* matters: a
-  framing/scene-first phrasing makes it spend its 6-step budget on zoom/background and barely move the
-  pose. The identity-preamble comma-list with `__angle__/__pose__` leading gives the most pose variety;
-  the multiple-angles LoRA (0.8) reinforces camera changes. New scene axes are appended, not prepended.
-- **GGUF + Lightning for 16 GB.** The 20B edit model only fits a 16 GB card quantized (GGUF Q5); the
-  4-step Lightning LoRA (run at 6 steps, cfg 1.0) keeps generation fast despite the text encoder
-  offloading to RAM. This is why the edit route is practical on consumer hardware at all.
-- **Roster + per-character graphs.** Adding a character is one config entry, not edited scripts —
-  scales to N characters with no copy-paste.
-- **Two venvs.** sd-scripts needs Python ≤3.12 + a pinned torch, so it can't share ComfyUI's venv.
-- **Prodigy + `--sdpa`.** Prodigy auto-tunes LR (no bitsandbytes needed); `--sdpa` sidesteps
-  xformers wheels on Blackwell.
+Key defaults — **training**: LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps (full matrix:
+[REFERENCE.md](REFERENCE.md)). **Stage-1 hero**: `oneObsession_v19Atypical` · VAE `sdxl_vae_f16_fix` ·
+CLIP skip −2 · CFG 5 · `euler_ancestral`/`normal`/30 · 832×1216. **Qwen-Edit**: GGUF Q5 · Lightning
+6 steps / cfg 1.0 (see [DATASET.md](DATASET.md)).

@@ -1,7 +1,8 @@
 # Add a new character — full checklist
 
 Follow this top to bottom and you won't miss a step. Terser loop: [QUICKSTART.md](QUICKSTART.md).
-Every knob: [REFERENCE.md](REFERENCE.md). Traps you shouldn't re-discover: [GOTCHAS.md](GOTCHAS.md).
+How the dataset engine works: [DATASET.md](DATASET.md). Every knob: [REFERENCE.md](REFERENCE.md).
+Traps you shouldn't re-discover: [GOTCHAS.md](GOTCHAS.md).
 
 > **The 3 things people get wrong** (each one silently ruins the LoRA):
 > 1. **Outfit must use the tagger's vocabulary** — write clothes the way the WD14 tagger does, e.g.
@@ -62,7 +63,7 @@ python tools/build_il_graphs.py
 
 ## 3. Generate the dataset — in ComfyUI
 
-Open **`IL_DatasetEdit_<name>`**:
+Open **`IL_DatasetEdit_<name>`** (anatomy + tuning: [DATASET.md](DATASET.md)):
 - [ ] **Stage 1:** reroll **Hero Seed** until the face in **HERO preview** is the one you want. Leave it
       fixed on that value.
 - [ ] **Stage 2:** set the Edit-instruction seed to **randomize**, batch count **~40**, **Queue once** →
@@ -143,5 +144,5 @@ after you find a face you like, so variants reuse it (closest achievable face �
 | "no dataset at output/dataset/\<name\>" | You skipped §3 — generate the dataset first. |
 | Character doesn't appear at inference | Trigger word missing from the prompt, or LoRA strength too low (§7). |
 | Outfit looks right at high strength only | Use the XY plot (§7) to find the strength/epoch sweet spot. |
-| OOM / too slow generating the dataset | `scripts\install_qwen_edit.ps1 -Quant Q4_K_M`. |
-| Identity drifts across dataset frames | Lower the multiple-angles LoRA; pin a tight `id` + `hero_seed`. |
+| OOM / too slow generating the dataset | `scripts\install_qwen_edit.ps1 -Quant Q4_K_M`. More: [DATASET.md](DATASET.md). |
+| Identity drifts across dataset frames | Lower the multiple-angles LoRA; pin a tight `id` + `hero_seed`. More: [DATASET.md](DATASET.md). |
