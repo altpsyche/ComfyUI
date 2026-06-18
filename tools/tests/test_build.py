@@ -28,3 +28,17 @@ def test_all_graphs_validate(built):
     for name in _expected_names():
         rc = validate(built / f"{name}.json", require_models=False, require_wildcards=True)
         assert rc == 0, f"{name} failed validation (rules/wildcards)"
+
+
+def test_like_variants_inherit_id_seed_prune(built):
+    """A `like` variant inherits the parent's id + prune unless it overrides them."""
+    roster = {e["name"]: e for e in
+              json.loads((ROOT / "tools/lora_train/roster.json").read_text(encoding="utf-8"))}
+    likes = [(n, s) for n, s in CHARACTERS.items() if "like" in s]
+    assert likes, "no `like` variant in the roster to exercise inheritance"
+    for name, spec in likes:
+        parent = CHARACTERS[spec["like"]]
+        if "id" not in spec:
+            assert roster[name]["id"] == parent["id"], f"{name} did not inherit id"
+        if "prune" not in spec:
+            assert roster[name]["prune"] == parent.get("prune", ""), f"{name} did not inherit prune"

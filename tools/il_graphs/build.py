@@ -37,8 +37,9 @@ def main():
 
     # roster.json (name/trigger/id/outfit/prune) is the trainer's source of truth. Each character gets
     # exactly one dataset workflow: the self-contained Qwen-Image-Edit graph IL_DatasetEdit_<name>.
-    # `like: "<other>"` inherits that entry's id + hero_seed so a same-face/different-outfit variant
-    # (e.g. aria_gala like aria) needs only its own outfit -- same hero face, separate locked LoRA.
+    # `like: "<other>"` inherits that entry's id + hero_seed + prune so a same-face/different-outfit
+    # variant (e.g. aria_gala like aria) needs only its own outfit -- same hero face + identity lock,
+    # separate locked LoRA. (Any inherited field can still be overridden in the variant's own table.)
     # roster carries `outfit` so train_lora auto-bakes it into the trigger (no manual prune chasing).
     roster = []
     for cname, raw in CHARACTERS.items():
@@ -47,6 +48,7 @@ def main():
             parent = CHARACTERS[spec["like"]]
             spec.setdefault("id", parent["id"])
             spec.setdefault("hero_seed", parent.get("hero_seed", SEED))
+            spec.setdefault("prune", parent.get("prune", ""))   # same person -> inherit the identity lock too
         hero_seed = spec.get("hero_seed", SEED)
         outfit = spec.get("outfit", "")
         roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",

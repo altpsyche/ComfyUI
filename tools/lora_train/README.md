@@ -115,7 +115,7 @@ trainer's source of truth) and an **`IL_DatasetEdit_<name>`** Qwen-Image-Edit gr
 id = "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"   # identity ONLY
 outfit = "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes"
 
-# SAME identity, DIFFERENT locked outfit -> a separate LoRA. `like` inherits aria's id + hero_seed;
+# SAME identity, DIFFERENT locked outfit -> a separate LoRA. `like` inherits aria's id + hero_seed + prune;
 # you write only the new outfit. The pattern for a character's costume changes in a comic.
 # (Faces are recognizably the same person, not pixel-identical -- see the `like` note below.)
 [aria_gala]
@@ -135,7 +135,8 @@ Field-by-field:
   across poses, **and auto-baked into the trigger at train time** — `train_lora` derives the prune from
   this string (colour/style variants included), so the outfit renders identically in every scene with
   **no manual tag-hunting**. Just describe the outfit once here. Leave `""` to let the checkpoint pick.
-- **`like`** — *(optional)* `"<other entry>"`: inherit that entry's `id` + `hero_seed`. Use for the
+- **`like`** — *(optional)* `"<other entry>"`: inherit that entry's `id` + `hero_seed` + `prune`
+  (same face + same identity lock; any field can still be overridden in the variant). Use for the
   **same character in a different locked outfit** → a separate LoRA, same facial identity; you write only
   the new `outfit`. The recommended pattern for comics (one locked LoRA per character+outfit).
   **Caveat on "same face":** the variant re-renders its own Stage-1 hero with the *new outfit* in the

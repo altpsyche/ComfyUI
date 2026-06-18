@@ -1,6 +1,7 @@
 # Character LoRA — quick start
 
-Terse loop. Full detail: [README.md](README.md). Every knob in one table: [REFERENCE.md](REFERENCE.md).
+Terse loop. **Can't-miss checklist: [ADD_CHARACTER.md](ADD_CHARACTER.md).** Full detail:
+[README.md](README.md). Every knob in one table: [REFERENCE.md](REFERENCE.md).
 
 ## Once per machine
 
@@ -50,7 +51,7 @@ like = "aria"
 outfit = "elegant emerald evening gown, long gloves, high heels"
 ```
 
-`like` inherits `aria`'s `id` + `hero_seed`; you write only the new `outfit`. Regenerate -> generate
+`like` inherits `aria`'s `id` + `hero_seed` + `prune`; you write only the new `outfit`. Regenerate -> generate
 `IL_DatasetEdit_aria_gala` -> train. Trigger `aria_galachar`.
 
 **For the closest face match:** after rerolling `aria`'s Hero Seed to a face you like, write that seed

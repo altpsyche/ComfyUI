@@ -1,7 +1,8 @@
 # Reference — what the LoRA toolchain offers
 
-The single "what can I tune, and where" page. Step-by-step lives in [QUICKSTART.md](QUICKSTART.md);
-the full narrative in [README.md](README.md); traps in [GOTCHAS.md](GOTCHAS.md).
+The single "what can I tune, and where" page. Adding a character start-to-finish:
+[ADD_CHARACTER.md](ADD_CHARACTER.md). Step-by-step quick loop: [QUICKSTART.md](QUICKSTART.md); the full
+narrative in [README.md](README.md); traps in [GOTCHAS.md](GOTCHAS.md).
 
 ## The two configs (and how they meet)
 
@@ -128,6 +129,29 @@ absolute path if your epochs live elsewhere.
 The CFG floor is real: the validator checks `KSampler` / `KSamplerAdvanced` / `UltimateSDUpscale` /
 `FaceDetailer` / `SEGSDetailer` / `CFGGuider` cfg, not just `CFGGuider`. `IL_LCM` and the
 `IL_DatasetEdit_*` graphs run a low CFG by design and carry no `min_cfg` rule.
+
+## Model compatibility (using a different base)
+
+This toolchain is **SDXL-locked and anime/booru-flavored** — not Illustrious-only. Two separate layers:
+
+- **Trainer = SDXL.** `train_lora.ps1` runs kohya's `sdxl_train_network.py`, which trains a LoRA for
+  **any SDXL checkpoint**. Point `-Base` at another one:
+  ```powershell
+  .\tools\lora_train\train_lora.ps1 -Char aria -Base models\checkpoints\someOtherSDXL.safetensors
+  ```
+  Resolution/bucketing/dim/alpha/optimizer are generic SDXL settings, not Illustrious-specific.
+- **Conventions = anime/booru.** CLIP skip −2 (validator-enforced), WD14/danbooru captioning, the
+  `masterpiece, 1girl, …` prompts + embeddings, and CFG 5 suit anime SDXL models. They run on any SDXL
+  but aren't right for photoreal.
+
+| Target base model | Works? | What to do |
+|---|---|---|
+| Another **anime SDXL** (Pony, NoobAI, Animagine, …) | ✅ | `-Base <ckpt>` for training; swap the Checkpoint node in the render graphs. |
+| **Realistic / photoreal SDXL** | ⚠️ runs, but | swap the captioner (WD14 → BLIP/natural language), edit the baked prompts + negative embeddings, and reconsider CLIP skip (−1) — change `clip_skip` in `build.py`'s rules + the `CLIPSetLastLayer` widgets. |
+| **SD 1.5 / Flux / SD3 / Qwen (as the trained model)** | ❌ | Different architecture: needs a different sd-scripts train script (`train_network.py` / `flux_train_network.py` / …) + params. Not wired up. |
+
+The dataset generator (`IL_DatasetEdit`) is the same flavor: it renders the Stage-1 hero in your SDXL
+checkpoint and captions with WD14, so it's built for anime SDXL too.
 
 ## Tests
 

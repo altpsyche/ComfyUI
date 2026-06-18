@@ -20,8 +20,8 @@
 #             time (train_lora derives the prune from this string — colour/style
 #             variants included — so the outfit renders identically in every
 #             scene). Do NOT hand-list outfit tags anywhere; describe it once here.
-#   like      (optional) "<other table>": inherit that entry's id + hero_seed
-#             (same facial identity). Use for the SAME character in a DIFFERENT
+#   like      (optional) "<other table>": inherit that entry's id + hero_seed + prune
+#             (same facial identity + identity lock). Use for the SAME character in a DIFFERENT
 #             locked outfit -> a separate LoRA, recognizably the same person; you
 #             only write the new outfit. Best for comics (one locked LoRA per
 #             character+outfit). NB: the variant re-renders its own hero with the
@@ -58,3 +58,22 @@ outfit = "basketball uniform, orange and white basketball jersey, orange basketb
 [nyx]
 id = "1girl, solo, (silver bob hair:1.1), (violet eyes:1.1)"
 outfit = "superhero costume, deep violet bodysuit, silver accents, silver belt, knee boots, purple cape"
+
+# ============================================================================
+# BENCHMARK CHARACTER + FULL TEMPLATE — shows EVERY parameter, with two outfits.
+# mira is hard-locked (identity baked via `prune` + pinned `hero_seed`) so she renders the SAME
+# every time -> a stable reference for comparing epochs / strengths / checkpoints / settings.
+# Copy this block to add your own; delete the fields you don't need (only `id` is required).
+# ============================================================================
+[mira]
+trigger   = "mirachar"                                                 # caption keyword (default: mirachar)
+id        = "1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye"  # identity ONLY, weighted, no clothes
+outfit    = "hoodie, pleated skirt, black thighhighs, sneakers"        # outfit #1 — danbooru-vocab so it bakes
+hero_seed = 20250618                                                   # pins her face; mira_winter (below) reuses it
+prune     = "black hair, bob cut, red eyes, mole under eye, pale skin" # BENCHMARK lock: bake identity hard so mirachar alone = the same face every time
+
+# SAME character (inherits mira's id + hero_seed + prune), outfit #2 -> its own LoRA, same face + lock.
+# You can also override trigger / hero_seed / prune here if you want; otherwise they're inherited/defaulted.
+[mira_winter]
+like   = "mira"
+outfit = "long coat, turtleneck sweater, scarf, knee boots"           # outfit #2 — winter; trigger defaults to mira_winterchar
