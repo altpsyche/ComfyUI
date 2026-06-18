@@ -99,6 +99,12 @@ def test_modular_keep_must_be_subset_of_outfits(monkeypatch, tmp_path):
         _build_with({"x": {"id": "1girl, solo", "outfits": {"a": "hat"}, "keep": {"b": "hat"}}}, monkeypatch, tmp_path)
 
 
+def test_keep_table_without_outfits_raises(monkeypatch, tmp_path):
+    # renaming [x.outfits] -> [x.keep] (or dropping `outfits`) must fail loudly, not silently drop outfits
+    with pytest.raises(ValueError):
+        _build_with({"x": {"id": "1girl, solo", "keep": {"a": "hat"}}}, monkeypatch, tmp_path)
+
+
 def test_graph_name_collision_raises(monkeypatch, tmp_path):
     # modular 'mira' outfit 'winter' and a separate top-level 'mira_winter' both -> IL_DatasetEdit_mira_winter
     bad = {"mira": {"id": "1girl, solo", "outfits": {"winter": "coat"}},

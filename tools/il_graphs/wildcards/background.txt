@@ -1,12 +1,12 @@
 plain studio backdrop
 soft gradient background
-city street
-cozy cafe interior
-forest clearing
-bedroom interior
-rooftop at dusk
-library interior
-sunny beach
-park with green trees
-neon-lit alley at night
-flower garden
+plain white background
+plain light grey background
+soft bokeh background
+pastel gradient background
+light blue gradient background
+warm beige background
+clean seamless backdrop
+soft vignette background
+muted solid color background
+studio backdrop with soft shadow

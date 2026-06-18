@@ -69,6 +69,13 @@ def main():
         hero_seed = spec.get("hero_seed", SEED)
         trigger = spec.get("trigger") or f"{cname}char"
 
+        # A table-valued `keep` is the per-outfit form -> only valid for a modular character. Catch the
+        # easy mistake (renaming [<char>.outfits] to [<char>.keep], or dropping `outfits`) loudly instead
+        # of silently treating the char as single-outfit with a malformed keep.
+        if isinstance(spec.get("keep"), dict) and "outfits" not in spec:
+            raise ValueError(f"[{cname}.keep] is a per-outfit table -> only valid alongside [{cname}.outfits]. "
+                             f"For a single-outfit character use a string: keep = \"coat, jacket\".")
+
         if "outfits" in spec:
             # MODULAR: one LoRA, identity always-on + a swappable token per outfit. `outfits` is mutually
             # exclusive with the single-outfit `outfit`/`like`; `[<char>.keep]` is an OPTIONAL per-outfit
