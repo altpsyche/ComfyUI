@@ -10,13 +10,17 @@ one that doesn't resemble any danbooru character, so a text tag can't carry the 
 
 - **STAGE 1** renders ONE hero from the character's `id` tags **in your own SDXL checkpoint** (you
   reroll a fixed **Hero Seed** and pick the face) — so a brand-new character needs **no input image**.
-- **STAGE 2** lets an **image-edit model re-pose that whole hero** (face + hair + body + outfit) into
+- **STAGE 1b** (default ON) face+hand **details that one hero** in your SDXL checkpoint (clean
+  identity-only face prompt, denoise ~0.35) BEFORE the edit — so a crisp, on-model character is the
+  source every frame inherits. This is **one** detail pass total (the hero), not one per saved frame.
+  Toggle `QE_HERO_DETAIL` in `il_graphs/graphs.py`.
+- **STAGE 2** lets an **image-edit model re-pose that detailed hero** (face + hair + body + outfit) into
   new angles/poses/scenes, holding identity *and* your art style. Edit models only change what the
   instruction asks and are conditioned on the input image, so every frame stays on-style — no realism
   drift.
-- **STAGE 3** (default ON) re-details each frame's **face + hands in your SDXL checkpoint** (a clean
-  identity-only face prompt, denoise ~0.35) — Qwen softens faces, so this re-asserts the canonical face
-  + crisps the frame for a better training set. Toggle `QE_STAGE3_POLISH` in `il_graphs/graphs.py`.
+- **STAGE 3** (optional, **off** by default) can ALSO re-detail each *edited frame* — enable
+  `QE_STAGE3_POLISH` only if Qwen still softens faces despite the detailed hero (belt-and-suspenders, but
+  it adds a per-frame SDXL pass, so it's slower).
 
 The dataset only needs *recognizably the same person*; curation drops outliers and the trained LoRA
 averages the rest into the final exact face. Curate → `train_lora.ps1`.
@@ -54,12 +58,13 @@ Stage-1 prompt (the `id`), Stage-2 model, and `dataset/<name>/<name>` save prefi
 
 | Group | Does |
 |---|---|
-| **STAGE 1 — Hero (Illustrious)** | `CheckpointLoaderSimple` + `CLIPSetLastLayer −2` + the `id` prompt + `KSampler` (euler_a/normal/30/cfg 5, fixed **Hero Seed**) → `VAEDecode` → **HERO preview**. The single hero, in your style, no input image. |
+| **STAGE 1 — Hero (Illustrious)** | `CheckpointLoaderSimple` + `CLIPSetLastLayer −2` + the `id` prompt + `KSampler` (euler_a/normal/30/cfg 5, fixed **Hero Seed**) → `VAEDecode`. The single hero, in your style, no input image. |
+| **STAGE 1b — Hero detail** *(default ON)* | `FaceDetailer` ×2 (face + hand) in the SDXL hero checkpoint — face pass uses a clean identity-only prompt at denoise `QE_HERO_FACE_DENOISE` (0.35). Crisps the hero **once** so every edited frame inherits an on-model face → **HERO preview** shows this. Skip with `QE_HERO_DETAIL=False`. |
 | **STAGE 2 — Qwen-Edit model** | `UnetLoaderGGUF` (Q5) → `LoraLoaderModelOnly` ×2 (Lightning 1.0, multiple-angles 0.8) → `ModelSamplingAuraFlow` (shift 3.1) → `CFGNorm` (1.0). The official 2511 model-patch chain. |
-| **Encoders + scale** | `CLIPLoader` (qwen2.5-vl-7b, type `qwen_image`), `VAELoader` (qwen_image_vae), `FluxKontextImageScale` (scales the hero to the model's pixel budget). |
+| **Encoders + scale** | `CLIPLoader` (qwen2.5-vl-7b, type `qwen_image`), `VAELoader` (qwen_image_vae), `FluxKontextImageScale` (scales the **detailed** hero to the model's pixel budget). |
 | **Instruction + encode** | **`Edit instruction`** (`ImpactWildcardProcessor`, **mode `populate`** — see below) → `TextEncodeQwenImageEditPlus` (positive: scaled hero + instruction; negative: empty). Each conditioning passes a `FluxKontextMultiReferenceLatentMethod` node (kept **ON** — required for the repackaged GGUF). `VAEEncode` makes the init latent. |
-| **Edit + decode** | `KSampler` (Lightning: **6 steps / cfg 1.0 / euler / simple / denoise 1.0**) → `VAEDecode`. |
-| **STAGE 3 — polish** *(default ON)* | `FaceDetailer` ×2 (face + hand) in the SDXL hero checkpoint — face pass uses a clean identity-only prompt at denoise `QE_STAGE3_FACE_DENOISE` (0.35). Re-asserts the canonical face + crisps the frame. Skip with `QE_STAGE3_POLISH=False`. |
+| **Edit + decode** | `KSampler` (Lightning: **6 steps / cfg 1.0 / euler / simple / denoise 1.0**) → `VAEDecode` → **Save** (no per-frame detail — the hero was detailed up front). |
+| **STAGE 3 — polish** *(optional, default OFF)* | `FaceDetailer` ×2 on each *edited frame* — enable `QE_STAGE3_POLISH=True` only if Qwen still softens faces despite the detailed hero. Adds a per-frame SDXL pass (slower). |
 | **Save** | `SaveImage` prefix `dataset/<name>/<name>` → `output/dataset/<name>/`. |
 
 ## Step-by-step
@@ -112,12 +117,13 @@ If you settle on better defaults (LoRA strengths, steps, instruction), bake them
 | Symptom | Dial |
 |---|---|
 | Poses too similar | confirm seed control = randomize and the bottom box re-rolls; keep `__angle__/__pose__` leading; raise multiple-angles LoRA (0.8 → 1.0); add lines to `pose.txt`/`angle.txt` |
-| Identity drifts across frames | Stage-3 re-asserts the face in your checkpoint — raise `QE_STAGE3_FACE_DENOISE` (0.35 → 0.5); also lower multiple-angles LoRA (0.8 → 0.6), trim scene axes, use a cleaner hero |
-| Soft / low-detail faces | Stage-3 face-detail handles this; if still soft, raise the edit KSampler steps (`QE_EDIT_STEPS` 6 → 8–10), keep the Lightning LoRA, cfg stays 1.0 |
-| Style drifts from your checkpoint | ensure the hero is rendered in your checkpoint; Stage-3 re-renders the face there too. The face prompt is identity-only by design |
-| Faces over-cooked / not the Qwen pose | lower `QE_STAGE3_FACE_DENOISE` (0.35 → 0.25), or `QE_STAGE3_POLISH=False` to save the raw edit |
+| Identity drifts across frames | the hero is detailed up front (Stage 1b) — raise `QE_HERO_FACE_DENOISE` (0.35 → 0.5) for a stronger hero face; also lower multiple-angles LoRA (0.8 → 0.6), trim scene axes, use a cleaner hero. Still drifting after the edit? enable `QE_STAGE3_POLISH` |
+| Soft / low-detail faces | the detailed hero should carry crisp faces through the edit; if still soft, raise the edit KSampler steps (`QE_EDIT_STEPS` 6 → 8–10), or enable `QE_STAGE3_POLISH` for a per-frame face pass |
+| Hero preview itself looks low-detail | that's the pre-detail render if `QE_HERO_DETAIL=False`; turn it on (the preview shows the detailed hero). Reroll feels slow? mute the **Face + Hand Detail** group while picking the seed |
+| Style drifts from your checkpoint | ensure the hero is rendered in your checkpoint; Stage 1b re-renders its face there too. The face prompt is identity-only by design |
+| Faces over-cooked | lower `QE_HERO_FACE_DENOISE` (0.35 → 0.25) |
 | Output too zoomed/cropped | the ref auto-scales via `FluxKontextImageScale`; add framing words to `framing.txt` |
-| Too slow per frame | Stage-3 adds ~2 SDXL detail passes per frame (the biggest cost) — set `QE_STAGE3_POLISH=False` for raw edits. Otherwise per-edit compute is fixed by `QE_EDIT_STEPS` (6) + the model stack; a real slowdown is environmental (cold ~24 GB reload, other GPU apps, encoder offload). `-Quant Q4_K_M` if the encoder swap dominates |
+| Too slow per frame | the detail pass is now on the hero ONCE (not per frame), so per-edit cost is just `QE_EDIT_STEPS` (6) + the model stack; a real slowdown is environmental (cold ~24 GB reload, other GPU apps, encoder offload). `-Quant Q4_K_M` if the encoder swap dominates. (Don't enable `QE_STAGE3_POLISH` unless you need it — it re-adds a per-frame pass.) |
 
 ## Removable garments (coat-off frames)
 

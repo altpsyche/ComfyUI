@@ -129,27 +129,43 @@ QE_EDIT_STEPS = 6          # Lightning edit steps; raise to 8-10 only if edits l
 QE_EDIT_CFG = 1.0          # Lightning runs at cfg 1.0 (so the negative branch is unused)
 QE_EDIT_SAMPLER = "euler"
 QE_EDIT_SCHED = "simple"
-# Stage-3 polish: re-detail each edited frame in YOUR SDXL checkpoint (face + hand) before saving, so the
-# dataset face stays on-model + crisp (Qwen softens faces). Best identity/quality; set False for the raw
-# Qwen edit (faster, ~1 SDXL pass less per frame). The face pass uses a clean identity-only prompt.
-QE_STAGE3_POLISH = True
+# Hero detail (Stage 1b): face+hand detail the ONE hero in YOUR SDXL checkpoint BEFORE it feeds Qwen, so a
+# crisp, on-model character propagates into every edited frame. This is ONE detail pass total (the hero),
+# vs the old per-frame Stage-3 pass (one per saved image) -> much faster, and the quality is set at the
+# source. The face pass uses a clean identity-only prompt (outfit/pose tags fight the tiny face crop).
+QE_HERO_DETAIL = True
+QE_HERO_FACE_DENOISE = 0.35     # hero face re-render strength (higher = more SDXL face assertion)
+# Stage-3 polish: optionally ALSO re-detail every edited frame (belt-and-suspenders if Qwen still softens
+# faces). Off by default now that the hero is detailed up front; set True to re-enable the per-frame pass.
+QE_STAGE3_POLISH = False
 QE_STAGE3_FACE_DENOISE = 0.35   # face re-render strength (higher = more re-assertion of the SDXL face)
 
 
-def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed=SEED, framing=None):
+def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed=SEED, framing=None,
+                       *, save_tag=None, train_char=None):
     """FRONTIER dataset generator (self-contained): generate ONE original hero, then re-pose it into
     many varied shots with Qwen-Image-Edit-2511 (GGUF), holding identity + art style. One graph per
     roster character (IL_DatasetEdit_<name>); the trainer reads output/dataset/<name>/ as usual.
 
-    Stage 1 (bootstrap the hero): an Illustrious text2img renders the character from its `id` tags at
-    a fixed Hero Seed -> HERO preview. Reroll the Hero Seed to pick a face you like; that single image
-    is the identity anchor. Stage 2 (propagate): FluxKontextImageScale -> TextEncodeQwenImageEditPlus
+    Stage 1 (bootstrap the hero): an Illustrious text2img renders the character from its `id` (+ `outfit`)
+    tags at a fixed Hero Seed -> HERO preview. Reroll the Hero Seed to pick a face you like; that single
+    image is the identity anchor. Stage 2 (propagate): FluxKontextImageScale -> TextEncodeQwenImageEditPlus
     (scaled hero + a wildcard instruction) -> KSampler on the GGUF model (Lightning 4-step, 6 steps /
     cfg 1.0) -> save to output/dataset/<name>/. Because the hero is rendered in YOUR checkpoint, the
     edits stay on-style; the edit only changes pose/angle/expression. Verified on the live ComfyUI.
 
+    MODULAR character (one graph per outfit): the outfit's garments go in the HERO prompt (SDXL renders
+    the character wearing it -- highest fidelity, the proven path; Qwen then only re-poses, preserving the
+    outfit). Faces across outfits are "recognizably the same person" (same hero_seed + id), which is all
+    the dataset needs -- the always-on identity token averages them into one face at train time, while a
+    Qwen re-dress would instead poison the outfit token with a low-fidelity edit. `save_tag`
+    (e.g. "mira/winter") sets the output subfolder output/dataset/<save_tag>/; `train_char` is the
+    character the how-to note tells you to train (the base char, not the per-outfit name).
+
     Layout: clean left->right columns (Stage1 hero | model | encoders | instruction | refs | edit).
     """
+    save_tag = save_tag or name
+    train_char = train_char or name
     b = Builder()
     # ===== STAGE 1 — Illustrious hero generator (text2img from the character's id; pick a face) =====
     ck = b.add("CheckpointLoaderSimple", [CKPT], pos=(0, 0), title="Checkpoint (Illustrious)")
@@ -160,8 +176,10 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed
     # Hero framing suffix: per-character `framing` (full descriptor, no leading comma) overrides the
     # global REF_SUFFIX — e.g. a face-focused character can use a portrait crop for a larger face.
     suffix = (", " + framing) if framing else REF_SUFFIX
+    # The outfit (signature, or a modular character's per-graph outfit) is rendered into the hero by SDXL,
+    # so it's high-fidelity and Qwen only has to preserve it while re-posing.
     hpos = b.add("CLIPTextEncode", [identity + (", " + outfit if outfit else "") + suffix],
-                 pos=(360, 0), title="Hero prompt (identity)")
+                 pos=(360, 0), title="Hero prompt (identity + outfit)")
     hneg = b.add("CLIPTextEncode", [NEG], pos=(360, 180), title="Negative")
     hlat = b.add("EmptyLatentImage", [832, 1216, 1], pos=(360, 360), title="Hero latent 832x1216")
     b.link(hclip, "CLIP", hpos, "clip"); b.link(hclip, "CLIP", hneg, "clip")
@@ -172,23 +190,36 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed
     b.link(hseed, "int", hks, "seed")
     hdec = b.add("VAEDecode", [], pos=(720, 320), title="Hero decode")
     b.link(hks, "LATENT", hdec, "samples"); b.link(hvae, "VAE", hdec, "vae")
+
+    # ===== STAGE 1b — detail the HERO once (face + hand) in YOUR SDXL checkpoint, BEFORE Qwen =====
+    # A crisp, on-model hero propagates into every edited frame -> high quality at the source, and only
+    # ONE detail pass total (vs the old per-frame Stage-3 pass). The face crop uses an identity-only
+    # prompt (outfit/pose/framing tags fight the tiny face crop -- see GOTCHAS).
+    hero_img = (hdec, "IMAGE")
+    if QE_HERO_DETAIL:
+        hfpos = b.add("CLIPTextEncode", [identity], pos=(360, 640), title="Hero face prompt (identity only)")
+        b.link(hclip, "CLIP", hfpos, "clip")
+        chero = {"msrc": (ck, "MODEL"), "clip": hclip, "vae": hvae, "seed": hseed,
+                 "cpos": (hpos, "CONDITIONING"), "cneg": (hneg, "CONDITIONING")}
+        hero_img = add_detailers(b, chero, (hdec, "IMAGE"), x=820,
+                                 face_cond=(hfpos, "CONDITIONING"), face_denoise=QE_HERO_FACE_DENOISE)
     hprev = b.add("PreviewImage", [], pos=(720, 470), title="HERO preview (reroll Hero Seed to pick the face)")
-    b.link(hdec, "IMAGE", hprev, "images")
+    b.link(hero_img[0], hero_img[1], hprev, "images")   # preview the DETAILED hero (what feeds Qwen)
 
     # ===== STAGE 2 model — GGUF + Lightning(+angles) LoRA -> flow-shift + CFGNorm (2511 patch chain) =====
-    gguf = b.add("UnetLoaderGGUF", [QE_GGUF], pos=(1180, 0), title="Qwen-Edit GGUF (Q5)")
-    llora = b.add("LoraLoaderModelOnly", [QE_LIGHTNING, QE_LIGHTNING_STR], pos=(1180, 150), title="Lightning 4-step LoRA")
-    alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, QE_ANGLES_STR], pos=(1180, 300), title="Multiple-angles LoRA")
-    msaf = b.add("ModelSamplingAuraFlow", [QE_SHIFT], pos=(1180, 450), title="ModelSampling (shift 3.1)")
-    cfgn = b.add("CFGNorm", [QE_CFGNORM], pos=(1180, 600), title="CFGNorm")
+    gguf = b.add("UnetLoaderGGUF", [QE_GGUF], pos=(2180, 0), title="Qwen-Edit GGUF (Q5)")
+    llora = b.add("LoraLoaderModelOnly", [QE_LIGHTNING, QE_LIGHTNING_STR], pos=(2180, 150), title="Lightning 4-step LoRA")
+    alora = b.add("LoraLoaderModelOnly", [QE_ANGLES, QE_ANGLES_STR], pos=(2180, 300), title="Multiple-angles LoRA")
+    msaf = b.add("ModelSamplingAuraFlow", [QE_SHIFT], pos=(2180, 450), title="ModelSampling (shift 3.1)")
+    cfgn = b.add("CFGNorm", [QE_CFGNORM], pos=(2180, 600), title="CFGNorm")
     b.link(gguf, "MODEL", llora, "model"); b.link(llora, "MODEL", alora, "model")
     b.link(alora, "MODEL", msaf, "model"); b.link(msaf, "MODEL", cfgn, "model")
 
     # ===== encoders + scale =====
-    clip = b.add("CLIPLoader", [QE_CLIP, "qwen_image", "default"], pos=(1620, 0), title="Qwen 2.5-VL text encoder")
-    vae = b.add("VAELoader", [QE_VAE], pos=(1620, 170), title="Qwen Image VAE")
-    scale = b.add("FluxKontextImageScale", [], pos=(1620, 340), title="Scale ref (hero -> edit)")
-    b.link(hdec, "IMAGE", scale, "image")   # the Stage-1 hero feeds the edit
+    clip = b.add("CLIPLoader", [QE_CLIP, "qwen_image", "default"], pos=(2620, 0), title="Qwen 2.5-VL text encoder")
+    vae = b.add("VAELoader", [QE_VAE], pos=(2620, 170), title="Qwen Image VAE")
+    scale = b.add("FluxKontextImageScale", [], pos=(2620, 340), title="Scale ref (hero -> edit)")
+    b.link(hero_img[0], hero_img[1], scale, "image")   # the DETAILED Stage-1 hero feeds the edit
 
     # ===== instruction + encode (wildcards vary angle/pose/expr + new framing/background/lighting) =====
     # Keep the identity-preamble comma-list that empirically gave good POSE/ANGLE variety, and just
@@ -203,60 +234,64 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed
              "__angle__, __pose__, __expression__, __framing__, __background__, __lighting__")
     wild = b.add("ImpactWildcardProcessor",
                  [wtext, wtext, "populate", SEED, "randomize", "Select the Wildcard to add to the text"],
-                 pos=(2120, 0), title="Edit instruction (reroll = variety)")
-    posenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(2120, 220), title="Encode (positive: hero + instruction)")
-    negenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(2120, 470), title="Encode (negative: empty)")
+                 pos=(3120, 0), title="Edit instruction (reroll = variety)")
+    posenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(3120, 220), title="Encode (positive: hero + instruction)")
+    negenc = b.add("TextEncodeQwenImageEditPlus", [""], pos=(3120, 470), title="Encode (negative: empty)")
     for enc in (posenc, negenc):
         b.link(clip, "CLIP", enc, "clip"); b.link(vae, "VAE", enc, "vae"); b.link(scale, "IMAGE", enc, "image1")
     b.link(wild, "STRING", posenc, "prompt")   # instruction drives the positive encoder
 
     # ===== reference-latent method (needed for repackaged/GGUF builds) + init latent =====
-    posref = b.add("FluxKontextMultiReferenceLatentMethod", ["index_timestep_zero"], pos=(2660, 220), title="Ref method (pos)")
-    negref = b.add("FluxKontextMultiReferenceLatentMethod", ["index_timestep_zero"], pos=(2660, 470), title="Ref method (neg)")
+    posref = b.add("FluxKontextMultiReferenceLatentMethod", ["index_timestep_zero"], pos=(3660, 220), title="Ref method (pos)")
+    negref = b.add("FluxKontextMultiReferenceLatentMethod", ["index_timestep_zero"], pos=(3660, 470), title="Ref method (neg)")
     b.link(posenc, "CONDITIONING", posref, "conditioning"); b.link(negenc, "CONDITIONING", negref, "conditioning")
-    venc = b.add("VAEEncode", [], pos=(2660, 640), title="Encode hero -> latent")
+    venc = b.add("VAEEncode", [], pos=(3660, 640), title="Encode hero -> latent")
     b.link(scale, "IMAGE", venc, "pixels"); b.link(vae, "VAE", venc, "vae")
 
     # ===== edit + decode (Lightning: 6 steps / cfg 1.0 / euler / simple) =====
     ks = b.add("KSampler", [SEED, "randomize", QE_EDIT_STEPS, QE_EDIT_CFG, QE_EDIT_SAMPLER, QE_EDIT_SCHED, 1.0],
-               pos=(3120, 220), title="Edit KSampler (6 steps)")
+               pos=(4120, 220), title="Edit KSampler (6 steps)")
     b.link(cfgn, "MODEL", ks, "model"); b.link(posref, "CONDITIONING", ks, "positive")
     b.link(negref, "CONDITIONING", ks, "negative"); b.link(venc, "LATENT", ks, "latent_image")
-    vdec = b.add("VAEDecode", [], pos=(3120, 460), title="Decode")
+    vdec = b.add("VAEDecode", [], pos=(4120, 460), title="Decode")
     b.link(ks, "LATENT", vdec, "samples"); b.link(vae, "VAE", vdec, "vae")
 
     note = b.add("Note", [
         f"QWEN-EDIT DATASET TOOL ('{name}') -- self-contained: it MAKES the hero, then re-poses it.\n"
         "STAGE 1 (left): reroll 'Hero Seed' and watch HERO preview until you like the face (rendered\n"
-        "from this character's id tags in YOUR checkpoint). Then leave Hero Seed fixed on that value.\n"
+        "from this character's id tags in YOUR checkpoint, then face+hand DETAILED so it's crisp). Then\n"
+        "leave Hero Seed fixed on that value. (Reroll feels slow? mute the 'Face + Hand Detail' group.)\n"
         "STAGE 2: leave 'Edit instruction' seed control = randomize; set batch count ~40 + Queue once\n"
-        "  -> output/dataset/" + name + "/. Each frame = that hero in a new framing/angle/pose/expression/\n"
-        "  background/lighting, same identity + art style. (mode 'populate': the bottom box shows the\n"
-        "  resolved prompt and re-rolls each queue; it also still expands headless via the backend.)\n"
-        "Then curate the best 25-40 and run: tools/lora_train/train_lora.ps1 -Char " + name + ".\n"
+        "  -> output/dataset/" + save_tag + "/. Each frame = that DETAILED hero re-posed into a new framing/\n"
+        "  angle/pose/expression/background/lighting, same identity + art style. (mode 'populate': the\n"
+        "  bottom box shows the resolved prompt and re-rolls each queue; also expands headless via backend.)\n"
+        "Then curate the best 25-40 and run: tools/lora_train/train_lora.ps1 -Char " + train_char + ".\n"
         "Wildcards (__angle__/__pose__/__expression__/__framing__/__background__/__lighting__) live in\n"
         "  ComfyUI-Impact-Pack/wildcards/. Too slow / OOM? re-run install_qwen_edit.ps1 -Quant Q4_K_M.\n"
         "Poses too similar? __pose__/__angle__ lead the instruction on purpose -- raise the multiple-angles\n"
         "  LoRA toward 1.0, or drop a scene axis. Identity drifting? lower the multiple-angles LoRA.\n"
-        "STAGE 3: each saved frame is face+hand detailed in YOUR checkpoint (cleaner, on-model faces).\n"
-        "  Set QE_STAGE3_POLISH=False in il_graphs/graphs.py to save the raw Qwen edit instead (faster)."],
-        pos=(2120, 700), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
+        "QUALITY: the HERO is detailed up front (one pass) so every frame inherits a crisp face. If Qwen\n"
+        "  still softens faces, set QE_STAGE3_POLISH=True in il_graphs/graphs.py to ALSO detail each frame."],
+        pos=(3120, 700), title=f"How to use ({name})", color=NOTE_C, bgcolor=NOTE_BG)
 
-    # ===== STAGE 3 — polish: re-detail the edited frame in YOUR SDXL checkpoint (face + hand) =====
-    # Qwen softens faces / drifts identity slightly; a face+hand detail pass in the hero checkpoint
-    # re-asserts the canonical face + art style on every frame -> a cleaner training set. The face pass
-    # uses an identity-ONLY prompt (outfit/pose/framing tags fight the tiny face crop -- see GOTCHAS).
+    # ===== STAGE 3 (optional) — ALSO re-detail each edited frame in YOUR SDXL checkpoint (face + hand) =====
+    # Off by default: the hero is already detailed up front (Stage 1b), so the face is crisp at the source.
+    # Enable (QE_STAGE3_POLISH) for a belt-and-suspenders per-frame pass if Qwen still softens faces. The
+    # face pass uses an identity-ONLY prompt (outfit/pose/framing tags fight the tiny face crop).
     final = (vdec, "IMAGE")
     if QE_STAGE3_POLISH:
-        fpos = b.add("CLIPTextEncode", [identity], pos=(3120, 640), title="Face restore prompt (identity only)")
+        fpos = b.add("CLIPTextEncode", [identity], pos=(4120, 640), title="Face restore prompt (identity only)")
         b.link(hclip, "CLIP", fpos, "clip")
         cpolish = {"msrc": (ck, "MODEL"), "clip": hclip, "vae": hvae, "seed": hseed,
                    "cpos": (hpos, "CONDITIONING"), "cneg": (hneg, "CONDITIONING")}
-        final = add_detailers(b, cpolish, (vdec, "IMAGE"), x=3600,
+        final = add_detailers(b, cpolish, (vdec, "IMAGE"), x=4600,
                               face_cond=(fpos, "CONDITIONING"), face_denoise=QE_STAGE3_FACE_DENOISE)
 
-    add_finish(b, final, f"dataset/{name}/{name}", x=4520)
-    b.group("STAGE 1 - Hero generator (Illustrious)", [ck, hvae, hseed, hclip, hpos, hneg, hlat, hks, hdec, hprev], "#535")
+    add_finish(b, final, f"dataset/{save_tag}/{save_tag.split('/')[-1]}", x=5520)
+    stage1 = [ck, hvae, hseed, hclip, hpos, hneg, hlat, hks, hdec, hprev]
+    if QE_HERO_DETAIL:
+        stage1.append(hfpos)
+    b.group("STAGE 1 - Hero generator + detail (Illustrious)", stage1, "#535")
     b.group("STAGE 2 - Qwen-Edit model + LoRAs", [gguf, llora, alora, msaf, cfgn], "#525")
     b.group("Encoders + scale", [clip, vae, scale], "#535")
     b.group("Instruction + encode", [wild, posenc, negenc, note], "#355")

@@ -2,7 +2,8 @@
 
 Follow this top to bottom and you won't miss a step. Terser loop: [QUICKSTART.md](QUICKSTART.md).
 How the dataset engine works: [DATASET.md](DATASET.md). Every knob: [REFERENCE.md](REFERENCE.md).
-Traps you shouldn't re-discover: [GOTCHAS.md](GOTCHAS.md).
+Traps you shouldn't re-discover: [GOTCHAS.md](GOTCHAS.md). Which clothing mechanism to use
+(outfit / keep / outfits / like): [CLOTHING_MODEL.md](CLOTHING_MODEL.md).
 
 > **The 3 things people get wrong** (each one silently ruins the LoRA):
 > 1. **Outfit must use the tagger's vocabulary** — write clothes the way the WD14 tagger does, e.g.
@@ -135,6 +136,33 @@ outfit = "elegant emerald evening gown, long gloves, high heels"
 Then §2 → §8 as normal. Trigger defaults to `aria_galachar`. **Pin `hero_seed`** on the parent (`aria`)
 after you find a face you like, so variants reuse it (closest achievable face — not pixel-identical).
 
+### Modular character — one LoRA, swappable outfits
+
+Want several outfits **switchable at inference in one file** (instead of a separate `like` LoRA each)?
+Use a `[<char>.outfits]` table. Trade-offs vs `like`: [CLOTHING_MODEL.md](CLOTHING_MODEL.md).
+
+```toml
+[mira]
+id     = "1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye"
+prune  = "black hair, bob cut, red eyes, mole under eye, pale skin"   # identity baked, always-on
+[mira.outfits]                          # each -> a swappable token mira_<name>
+hoodie = "hoodie, pleated skirt, black thighhighs, sneakers"
+winter = "long coat, turtleneck sweater, scarf, knee boots"
+[mira.keep]                             # optional, per-outfit: garments left promptable
+winter = "coat, long coat"
+```
+
+- [ ] `outfits` is **mutually exclusive** with `outfit`/`like`. Outfit names must be `^[a-z0-9]+$`.
+- [ ] §2 regenerate emits **one graph per outfit**: `IL_DatasetEdit_mira_hoodie`, `IL_DatasetEdit_mira_winter`.
+- [ ] §3 generate **each** graph into its own subfolder `output/dataset/mira/<outfit>/` (~20–25 frames
+      each; SDXL renders the character wearing that outfit, same `hero_seed`+id so faces match). Curate each (§4).
+- [ ] §6 train **once**: `train_lora.ps1 -Char mira` — it captions every outfit subfolder with a two-token
+      trigger (`mirachar, mira_<outfit>`), bakes per-outfit, and trains one balanced multi-subset LoRA.
+- [ ] §6a per-outfit: each `.txt` starts `mirachar, mira_<outfit>, …` and that outfit's garments are gone.
+- [ ] §8 inference: `mirachar, mira_hoodie` or `mirachar, mira_winter` — swap the outfit token to change
+      costume. You can switch among **trained** outfits; you can't freely stack/mix garments (see
+      [CLOTHING_MODEL.md](CLOTHING_MODEL.md)).
+
 ---
 
 ## Troubleshooting
@@ -148,3 +176,4 @@ after you find a face you like, so variants reuse it (closest achievable face �
 | Outfit looks right at high strength only | Use the XY plot (§7) to find the strength/epoch sweet spot. |
 | OOM / too slow generating the dataset | `scripts\install_qwen_edit.ps1 -Quant Q4_K_M`. More: [DATASET.md](DATASET.md). |
 | Identity drifts across dataset frames | Lower the multiple-angles LoRA; pin a tight `id` + `hero_seed`. More: [DATASET.md](DATASET.md). |
+| Modular: outfits bleed into each other / into identity | Hard to fully avoid with few outfits. Add more frames per outfit, make outfits more visually distinct, or add regularization images; retrain. [CLOTHING_MODEL.md](CLOTHING_MODEL.md). |

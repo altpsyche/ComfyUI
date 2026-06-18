@@ -11,6 +11,7 @@ file copies, no manual moving.
 |---|---|
 | Run the whole loop, commands only | **[QUICKSTART.md](QUICKSTART.md)** |
 | Add a character without missing a step | **[ADD_CHARACTER.md](ADD_CHARACTER.md)** (the authoritative checklist) |
+| Choose how to control clothes (outfit / keep / outfits / like) | **[CLOTHING_MODEL.md](CLOTHING_MODEL.md)** |
 | Understand how the dataset images are made | **[DATASET.md](DATASET.md)** (the Qwen-Image-Edit engine) |
 | Look up a knob / flag / command | **[REFERENCE.md](REFERENCE.md)** |
 | Steer pose/angle/scene variety | **[WILDCARDS.md](WILDCARDS.md)** |
@@ -23,7 +24,8 @@ cross-link, they don't repeat.
 ## Mental model
 
 - **One character = one dataset = one LoRA file.** Five characters = five independent LoRAs that never
-  interfere; at render time you toggle whichever you want in the LoRA bank.
+  interfere; at render time you toggle whichever you want in the LoRA bank. (A **modular** character is
+  still one LoRA, but carries several swappable outfits — see [CLOTHING_MODEL.md](CLOTHING_MODEL.md).)
 - **The chicken-and-egg** (you can't make consistent images without a consistent character, but you
   need consistent images to train one) is solved by **bootstrapping**: generate ONE good "hero"
   portrait, propagate it onto many varied poses/angles/outfits, curate, train.
@@ -90,6 +92,7 @@ re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/que
 |---|---|---|
 | **Add / remove a character** | a `[table]` in [`characters.toml`](../il_graphs/characters.toml) | regenerate |
 | **Same character, new locked outfit** | a `[table]` with `like = "<char>"` + its own `outfit` | regenerate (own LoRA, same identity; pin `hero_seed`) |
+| **Same character, swappable outfits** (one LoRA) | a `[<char>.outfits]` table (modular) — see [CLOTHING_MODEL.md](CLOTHING_MODEL.md) | regenerate (one LoRA, `mirachar, mira_<outfit>`) |
 | **Signature outfit** (auto-locked) | that table's `outfit` (auto-baked into the trigger at train) | regenerate |
 | **Character identity** (face/hair/eyes) | that table's `id` (Stage-1 hero prompt) | regenerate |
 | **Trigger / pruned tags** | `trigger` / `prune` in the table | regenerate (rewrites `roster.json`) |
@@ -135,12 +138,14 @@ tools/
     README.md                 this file — concepts, setup, file map
     QUICKSTART.md             the whole loop, commands only
     ADD_CHARACTER.md          add-a-character checklist (authoritative procedure)
+    CLOTHING_MODEL.md         outfit / keep / outfits (modular) / like — which to use
     DATASET.md                the Qwen-Image-Edit dataset engine
     REFERENCE.md              every command + the full training-param matrix
     GOTCHAS.md                dead ends + traps — read before changing the pipeline
     WILDCARDS.md              steering dataset variety
     train.toml                training hyperparams: [defaults] / [profiles.*] / [train.<char>]
     train_config.py           resolves train.toml (defaults < per-char < profile < CLI) -> JSON
+    dataset_plan.py           modular: balanced num_repeats + multi-subset dataset .toml (keep_tokens=2)
     train_lora.ps1            caption + train one character (-Profile / -DryRun / param flags)
     train_all.ps1             train the whole roster
     prep_captions.py          trigger-prepend + auto-bake outfit (tolerant) + extra prune (--dry-run)

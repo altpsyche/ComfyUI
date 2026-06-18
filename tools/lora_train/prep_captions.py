@@ -113,7 +113,10 @@ def main():
 
     phrases, nouns = build_lock(args.outfit, args.prune)
     keep = {t.strip().lower() for t in args.keep.split(",") if t.strip()}
-    trig = args.trigger.lower()
+    # The trigger may be a multi-token string for a modular character, e.g. "mirachar, mira_winter"
+    # (identity token + per-outfit token, both kept first under keep_tokens=2). Split on comma so the
+    # de-dup below drops an already-present trigger token per-token (else a re-run double-prepends).
+    trig_tokens = {p.strip().lower() for p in args.trigger.split(",") if p.strip()}
     folder = pathlib.Path(args.folder)
     txts = sorted(folder.glob("*.txt"))
     if not txts:
@@ -122,13 +125,13 @@ def main():
     changed = removed_total = 0
     for f in txts:
         tags = [t.strip() for t in f.read_text(encoding="utf-8").split(",") if t.strip()]
-        pruned = [t for t in tags if t.lower() != trig and should_prune(t, phrases, nouns, keep)]
-        kept = [t for t in tags if t.lower() != trig and not should_prune(t, phrases, nouns, keep)]
+        pruned = [t for t in tags if t.lower() not in trig_tokens and should_prune(t, phrases, nouns, keep)]
+        kept = [t for t in tags if t.lower() not in trig_tokens and not should_prune(t, phrases, nouns, keep)]
         removed_total += len(pruned)
         if args.dry_run:
             print(f"  {f.name}: prune {pruned}" if pruned else f"  {f.name}: (nothing to prune)")
         else:
-            f.write_text(", ".join([args.trigger] + kept), encoding="utf-8")  # trigger first (keep_tokens=1)
+            f.write_text(", ".join([args.trigger] + kept), encoding="utf-8")  # trigger token(s) first (protected by keep_tokens)
         changed += 1
     verb, rverb = ("would prep", "would remove") if args.dry_run else ("prepped", "removed")
     print(f"{verb} {changed} captions in {folder} (trigger={args.trigger!r}, "

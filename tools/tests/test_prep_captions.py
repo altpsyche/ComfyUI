@@ -88,3 +88,30 @@ def test_strict_passes_when_outfit_matches(tmp_path):
     (tmp_path / "a.txt").write_text("tennis_uniform, visor, 1girl", encoding="utf-8")
     r = _run(tmp_path, "--trigger", "zz", "--outfit", "tennis uniform, visor", "--strict")
     assert r.returncode == 0, r.stderr            # underscored tags matched -> baked -> ok
+
+
+# --- modular character: a two-token trigger (identity + per-outfit token), keep_tokens=2 ---
+
+def test_two_token_trigger_prepends_both_and_bakes(tmp_path):
+    # A modular outfit subfolder: identity token + this outfit's token lead every caption; the identity
+    # (--prune) and this outfit's garments (--outfit) are removed, the rest stays promptable.
+    f = tmp_path / "a.txt"
+    f.write_text("black hair, hoodie, pleated skirt, looking at viewer, outdoors", encoding="utf-8")
+    r = _run(tmp_path, "--trigger", "mirachar, mira_hoodie",
+             "--prune", "black hair", "--outfit", "hoodie, pleated skirt", "--strict")
+    assert r.returncode == 0, r.stderr
+    out = f.read_text(encoding="utf-8")
+    assert out.startswith("mirachar, mira_hoodie, ")            # both trigger tokens kept first (keep_tokens=2)
+    tags = [t.strip() for t in out.split(",")]
+    assert "black hair" not in tags                             # identity baked
+    assert "hoodie" not in tags and "pleated skirt" not in tags  # this outfit's garments baked
+    assert "looking at viewer" in tags and "outdoors" in tags    # pose/scene stays promptable
+
+
+def test_two_token_trigger_no_double_prepend_on_rerun(tmp_path):
+    # Re-running prep on already-prepped captions must not double-prepend either trigger token.
+    f = tmp_path / "a.txt"
+    f.write_text("mirachar, mira_hoodie, outdoors", encoding="utf-8")
+    r = _run(tmp_path, "--trigger", "mirachar, mira_hoodie")
+    assert r.returncode == 0, r.stderr
+    assert f.read_text(encoding="utf-8") == "mirachar, mira_hoodie, outdoors"

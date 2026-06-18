@@ -4,6 +4,7 @@ Run:  python tools/build_il_graphs.py   (or:  python -m il_graphs.build)
 """
 from __future__ import annotations
 import json
+import re
 import sys
 from .config import OUT, ROOT, CHARACTERS, SEED
 from .docs import md
@@ -35,30 +36,76 @@ def main():
     edit_req = ["CheckpointLoaderSimple", "UnetLoaderGGUF", "CLIPLoader", "TextEncodeQwenImageEditPlus",
                 "FluxKontextMultiReferenceLatentMethod", "KSampler", "VAEDecode", "SaveImage"]
 
-    # roster.json (name/trigger/id/outfit/prune) is the trainer's source of truth. Each character gets
-    # exactly one dataset workflow: the self-contained Qwen-Image-Edit graph IL_DatasetEdit_<name>.
-    # `like: "<other>"` inherits that entry's id + hero_seed + prune so a same-face/different-outfit
-    # variant (e.g. aria_gala like aria) needs only its own outfit -- same hero face + identity lock,
-    # separate locked LoRA. (Any inherited field can still be overridden in the variant's own table.)
-    # roster carries `outfit` so train_lora auto-bakes it into the trigger (no manual prune chasing).
+    # roster.json (name/trigger/id/outfit/prune) is the trainer's source of truth. A character gets one
+    # dataset workflow (IL_DatasetEdit_<name>) -- EXCEPT a MODULAR character (a `[<char>.outfits]` table),
+    # which gets one IL_DatasetEdit_<char>_<outfit> per outfit and a single LoRA carrying identity (always
+    # on) + a swappable token per outfit. `like: "<other>"` inherits that entry's id + hero_seed + prune so
+    # a same-face/different-outfit variant (e.g. aria_gala like aria) needs only its own outfit -- same
+    # hero face + identity lock, separate locked LoRA. (Any inherited field can still be overridden.)
+    # roster carries `outfit`/`outfits` so train_lora bakes them into the trigger (no manual prune chasing).
     roster = []
+
+    def emit(egname, graph):
+        """Register a dynamic graph, hard-failing on a name clash (a modular outfit colliding with an
+        existing character/like-variant would otherwise silently overwrite -- see red flag #4)."""
+        if egname in graphs:
+            raise ValueError(f"graph name collision: {egname!r} -- a modular outfit collides with an "
+                             "existing character/like-variant; rename the outfit or the table")
+        graphs[egname] = graph
+        req[egname] = edit_req
+
     for cname, raw in CHARACTERS.items():
         spec = dict(raw)
         if "like" in spec:
             parent = CHARACTERS[spec["like"]]
+            if "outfits" in parent:
+                raise ValueError(f"[{cname}] `like = {spec['like']!r}` points at a MODULAR character; "
+                                 "a like-variant must inherit from a single-outfit character")
             spec.setdefault("id", parent["id"])
             spec.setdefault("hero_seed", parent.get("hero_seed", SEED))
             spec.setdefault("prune", parent.get("prune", ""))   # same person -> inherit the identity lock too
             spec.setdefault("framing", parent.get("framing"))   # inherit the hero framing too
             spec.setdefault("keep", parent.get("keep", ""))      # inherit the promptable-garment list too
         hero_seed = spec.get("hero_seed", SEED)
+        trigger = spec.get("trigger") or f"{cname}char"
+
+        if "outfits" in spec:
+            # MODULAR: one LoRA, identity always-on + a swappable token per outfit. `outfits` is mutually
+            # exclusive with the single-outfit `outfit`/`like`; `[<char>.keep]` is an OPTIONAL per-outfit
+            # table of garments to leave promptable (semi-static -- don't over-prune the whole outfit).
+            if "outfit" in raw or "like" in raw:
+                raise ValueError(f"[{cname}] is modular (`outfits`) so it must NOT also set `outfit`/`like`")
+            outfits = spec["outfits"]
+            if not isinstance(outfits, dict) or not outfits:
+                raise ValueError(f"[{cname}.outfits] must be a non-empty table of <name> = <garments>")
+            outfit_keep = spec.get("keep", {})
+            if not isinstance(outfit_keep, dict):
+                raise ValueError(f"[{cname}.keep] must be a per-outfit table for a modular character "
+                                 "(e.g. [{}.keep] winter = \"coat\")".format(cname))
+            if not set(outfit_keep) <= set(outfits):
+                raise ValueError(f"[{cname}.keep] keys {sorted(outfit_keep)} must be a subset of the "
+                                 f"outfit names {sorted(outfits)}")
+            for oname in outfits:
+                if not re.fullmatch(r"[a-z0-9]+", oname):
+                    raise ValueError(f"[{cname}.outfits] outfit name {oname!r} must match ^[a-z0-9]+$ so "
+                                     "the <char>_<outfit> token + IL_DatasetEdit_<char>_<outfit> graph "
+                                     "name stay collision-safe")
+            roster.append({"name": cname, "trigger": trigger, "id": spec["id"], "outfit": "",
+                           "prune": spec.get("prune", ""), "keep": "",
+                           "outfits": dict(outfits), "outfit_keep": dict(outfit_keep)})
+            for oname, garments in outfits.items():
+                emit(f"IL_DatasetEdit_{cname}_{oname}",
+                     build_dataset_edit(f"{cname}_{oname}", spec["id"], garments, hero_seed,
+                                        spec.get("framing"),
+                                        save_tag=f"{cname}/{oname}", train_char=cname))
+            continue
+
         outfit = spec.get("outfit", "")
-        roster.append({"name": cname, "trigger": spec.get("trigger") or f"{cname}char",
+        roster.append({"name": cname, "trigger": trigger,
                        "id": spec["id"], "outfit": outfit, "prune": spec.get("prune", ""),
                        "keep": spec.get("keep", "")})
-        egname = f"IL_DatasetEdit_{cname}"
-        graphs[egname] = build_dataset_edit(cname, spec["id"], outfit, hero_seed, spec.get("framing"))
-        req[egname] = edit_req
+        emit(f"IL_DatasetEdit_{cname}",
+             build_dataset_edit(cname, spec["id"], outfit, hero_seed, spec.get("framing")))
     (ROOT / "tools/lora_train/roster.json").write_text(json.dumps(roster, indent=2), encoding="utf-8")
 
     for name, g in graphs.items():

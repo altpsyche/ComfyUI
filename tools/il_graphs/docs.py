@@ -78,10 +78,13 @@ DOCS = {
      "Curate the on-model ~30 in place, then: train_lora.ps1 -Char <name> (same flow as the hero/IPAdapter route).",
      "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
     ["STAGE 1 hero: euler_a / normal / 30 / cfg 5, 832x1216, your checkpoint (id-driven prompt).",
+     "STAGE 1b hero detail: the ONE hero is face+hand detailed in your SDXL checkpoint (denoise ~0.35, "
+     "identity-only face prompt) BEFORE Qwen, so a crisp on-model character propagates into every frame -- "
+     "one detail pass total, not one per frame. Toggle QE_HERO_DETAIL in il_graphs/graphs.py.",
      "Lightning 4-step LoRA -> edit KSampler 6 steps / cfg 1.0 / euler / simple (fast; makes Q5 practical on 16 GB).",
      "Multiple-angles LoRA (strength ~0.8) drives camera-angle variety; lower it if identity drifts.",
-     "STAGE 3 polish: each frame is face+hand detailed in your SDXL checkpoint (denoise ~0.35, identity-"
-     "only face prompt) so faces stay on-model + crisp. Toggle QE_STAGE3_POLISH in il_graphs/graphs.py.",
+     "STAGE 3 (optional, off by default): ALSO detail each edited frame -- set QE_STAGE3_POLISH=True only "
+     "if Qwen still softens faces despite the detailed hero.",
      "Reference-latent-method nodes are kept ON (needed for the repackaged GGUF build).",
      "Edit instruction node is mode='populate': the UI shows the resolved prompt and re-rolls each "
      "queue; populated_text holds the wildcards too, so a headless API POST still expands them in the "
