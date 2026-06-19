@@ -15,7 +15,7 @@ CN_UNION = "SDXL\\controlnet-union-sdxl-1.0\\diffusion_pytorch_model_promax.safe
 # base sampler config — IDENTICAL in every tier (this is what made base best)
 BASE_SAMPLER = "euler_ancestral"
 BASE_SCHED = "normal"
-BASE_STEPS = 30
+BASE_STEPS = 28
 BASE_CFG = 5
 
 POS = ("masterpiece, best quality, amazing quality, very aesthetic, absurdres, "

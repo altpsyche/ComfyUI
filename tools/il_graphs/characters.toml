@@ -68,7 +68,7 @@
 # ============================================================================
 [mira]
 trigger   = "mirachar"                                                 # identity (always-on) caption keyword (default: <name>char)
-id        = "1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye"  # identity ONLY, weighted, no clothes
+id        = "incase, 1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye"  # identity ONLY, weighted, no clothes
 hero_seed = 20250618                                                   # pins her face; ALL outfits share this one base hero
 prune     = "black hair, bob cut, red eyes, mole under eye, pale skin" # bake identity HARD -> mirachar alone = the same face
 framing   = "full body, standing, plain grey background, simple background, looking at viewer, neutral expression"  # explicit hero framing (this = the global full-body default; use "portrait, upper body, ..." for a face-focused character)
@@ -92,7 +92,7 @@ winter = "coat, long coat"                                            # omit/neg
 # Tennis player. Teal complements warm auburn hair; white flatters fair/freckled skin; nods to green eyes.
 # MODULAR: one LoRA, swap ariachar, aria_tennis  <->  ariachar, aria_gala at inference.
 [aria]
-id        = "1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"
+id        = "incase, 1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"
 hero_seed = 20250619                                                   # reroll -> pin a good face; ALL outfits share it
 prune     = "auburn hair, long hair, wavy hair, green eyes, freckles"  # identity lock (always-on)
 
@@ -102,14 +102,14 @@ gala   = "elegant emerald evening gown, long gloves, silver necklace, high heels
 
 # Basketball player. Orange is the complement of blue eyes (pops) and vivid against black hair.
 [kael]
-id        = "1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)"
+id        = "incase, 1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)"
 outfit    = "basketball uniform, orange and white basketball jersey, orange basketball shorts, white headband, basketball shoes"
 hero_seed = 20250620                                                   # reroll -> pin a good face
 prune     = "black hair, messy hair, blue eyes"                        # identity lock
 
 # Superhero. Deep violet echoes the eyes, silver echoes the hair, both striking on pale skin.
 [nyx]
-id        = "1girl, solo, (silver bob hair:1.1), (violet eyes:1.1)"
+id        = "incase, 1girl, solo, (silver bob hair:1.1), (violet eyes:1.1)"
 outfit    = "superhero costume, deep violet bodysuit, silver accents, silver belt, knee boots, purple cape"
 hero_seed = 20250621                                                   # reroll -> pin a good face
 prune     = "silver hair, bob cut, purple eyes"                        # identity lock
