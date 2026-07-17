@@ -31,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MODELS = REPO_ROOT / "models"
 CUSTOM_NODES = REPO_ROOT / "custom_nodes"
 WILDCARDS_DIRS = [
+    REPO_ROOT / "tools" / "il_graphs" / "wildcards",   # tracked source of truth (Impact-Pack reads it via custom_wildcards)
     CUSTOM_NODES / "ComfyUI-Impact-Pack" / "wildcards",
     CUSTOM_NODES / "ComfyUI-Inspire-Pack" / "wildcards",
 ]
@@ -100,19 +101,26 @@ def find_embedding_tokens(g: dict) -> list[tuple[str, str]]:
 
 
 def find_wildcard_tokens(g: dict) -> list[tuple[str, str]]:
-    """Return (node_id, token_name) for `__name__` references in FaceDetailer/SEGSDetailer wildcards."""
+    """Return (node_id, token_name) for `__name__` references in wildcard-bearing nodes.
+
+    Covers FaceDetailer/SEGSDetailer (their wildcard widget) AND the Impact-Pack wildcard
+    processor/encoder used by the IL_DatasetEdit graphs — otherwise a missing __pose__/__angle__
+    file passes pre-flight and only fails at generation time. Scans all string widgets (the
+    wildcard text + the populated text both hold the tokens) and dedups per node.
+    """
     out = []
+    WILDCARD_NODES = ("FaceDetailer", "SEGSDetailer",
+                      "ImpactWildcardProcessor", "ImpactWildcardEncode")
     for n in g.get("nodes", []):
-        nt = n.get("type")
-        if nt not in ("FaceDetailer", "SEGSDetailer"):
+        if n.get("type") not in WILDCARD_NODES:
             continue
-        widgets = n.get("widgets_values") or []
-        # FaceDetailer wildcard at index 23, SEGSDetailer doesn't have one
-        # (but some forks might — scan all string widgets)
-        for w in widgets:
+        seen = set()
+        for w in n.get("widgets_values") or []:
             if isinstance(w, str):
                 for m in re.finditer(r"__([\w-]+)__", w):
-                    out.append((str(n["id"]), m.group(1)))
+                    if m.group(1) not in seen:
+                        seen.add(m.group(1))
+                        out.append((str(n["id"]), m.group(1)))
     return out
 
 
@@ -153,22 +161,36 @@ def check_rules(g: dict, rules: dict) -> list[str]:
                     errs.append(f"node {n['id']} CLIPSetLastLayer = {widgets[0]}, "
                                 f"rule requires {clip_skip_target}")
 
+    # cfg sits at a different widget index per node type. CFGGuider alone is not enough — the IL
+    # family drives cfg through KSampler / UltimateSDUpscale / detailers, so check those too or the
+    # rule is vacuous. Indices verified against the live node widget order.
+    CFG_WIDGET_IDX = {
+        "CFGGuider": 0,            # [cfg]
+        "KSampler": 3,             # [seed, control, steps, CFG, sampler, scheduler, denoise]
+        "KSamplerAdvanced": 4,     # [add_noise, seed, control, steps, CFG, sampler, scheduler, ...]
+        "KSampler (Efficient)": 3, # [seed, control, steps, CFG, sampler, scheduler, denoise, preview, vae_decode]
+        "UltimateSDUpscale": 4,    # [upscale_by, seed, control, steps, CFG, sampler, scheduler, denoise, ...]
+        "FaceDetailer": 6,         # [guide, guide_for, max, seed, control, steps, CFG, sampler, ...]
+        "SEGSDetailer": 6,         # [guide, guide_for, max, seed, control, steps, CFG, sampler, ...]
+    }
     min_cfg = rules.get("min_cfg")
     max_cfg = rules.get("max_cfg")
     if min_cfg is not None or max_cfg is not None:
         for n in active_nodes:
-            if n.get("type") == "CFGGuider":
-                widgets = n.get("widgets_values") or []
-                if not widgets:
-                    continue
-                try:
-                    v = float(widgets[0])
-                except (TypeError, ValueError):
-                    continue
-                if min_cfg is not None and v < min_cfg:
-                    errs.append(f"node {n['id']} CFGGuider = {v}, rule requires >= {min_cfg}")
-                if max_cfg is not None and v > max_cfg:
-                    errs.append(f"node {n['id']} CFGGuider = {v}, rule requires <= {max_cfg}")
+            idx = CFG_WIDGET_IDX.get(n.get("type"))
+            if idx is None:
+                continue
+            widgets = n.get("widgets_values") or []
+            if idx >= len(widgets):
+                continue
+            try:
+                v = float(widgets[idx])
+            except (TypeError, ValueError):
+                continue
+            if min_cfg is not None and v < min_cfg:
+                errs.append(f"node {n['id']} {n['type']} cfg = {v}, rule requires >= {min_cfg}")
+            if max_cfg is not None and v > max_cfg:
+                errs.append(f"node {n['id']} {n['type']} cfg = {v}, rule requires <= {max_cfg}")
 
     require_nodes = rules.get("require_nodes") or []
     for needed in require_nodes:
@@ -183,12 +205,15 @@ def check_rules(g: dict, rules: dict) -> list[str]:
     return errs
 
 
-def find_lora_widget_for_loader(g: dict) -> list[tuple[str, str]]:
-    """Stub for completeness — already covered by SIMPLE_MODEL_LOADERS and rgthree."""
-    return []
+def validate(path: Path, *, strict: bool = False, rules_path: Path | None = None,
+             require_models: bool = True, require_wildcards: bool = False) -> int:
+    """Validate one workflow. Returns 0 (ok) / 1 (fail).
 
-
-def validate(path: Path, *, strict: bool = False, rules_path: Path | None = None) -> int:
+    `require_models` (default True) → missing model files count as failures, matching CLI behaviour.
+    `require_wildcards` (default False) → missing `__token__` files count as failures. The build-time
+    guardrail calls validate(require_models=False, require_wildcards=True) so a fresh checkout missing
+    large model downloads still builds, while rule/wildcard regressions hard-fail.
+    """
     g = json.loads(path.read_text(encoding="utf-8"))
     rules = load_rules(path, rules_path)
 
@@ -261,7 +286,12 @@ def validate(path: Path, *, strict: bool = False, rules_path: Path | None = None
             print(f"  - {e}")
         print()
 
-    return 1 if (strict or constraint_errs or missing_files) else 0
+    hard = bool(constraint_errs)
+    if require_models:
+        hard = hard or bool(missing_files)
+    if require_wildcards:
+        hard = hard or bool(missing_wc)
+    return 1 if (strict or hard) else 0
 
 
 def main() -> int:

@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# ComfyUI dev toolkit dispatcher (Linux/macOS).
+#
+# Runs the stdlib-only dispatcher on the system python; individual commands re-exec into the
+# appropriate venv (main / trainer) as needed. All logic lives in the devtools/ package —
+# this launcher never needs editing when commands are added.
+set -e
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$here"
+PY=$(command -v python3 || command -v python) || {
+    echo "python3 not found on PATH — install Python 3.10+" >&2
+    exit 1
+}
+exec "$PY" -m devtools "$@"

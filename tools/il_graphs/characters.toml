@@ -1,0 +1,115 @@
+# ============================================================================
+# IL_DatasetEdit ROSTER — one [table] per character to train.
+#
+# `python tools/build_il_graphs.py` reads this file and, per entry, emits an
+# IL_DatasetEdit_<name> (Qwen-Image-Edit) workflow + a tools/lora_train/roster.json
+# line (name/trigger/id/outfit/prune) the trainer reads. Add a character by adding a
+# [table] here and rebuilding — no Python. Table key = character = dataset folder
+# name; table ORDER is preserved (-> roster.json order). Full guide: ADD_CHARACTER.md.
+#
+# FIELDS  (only `id` is required; everything else is optional)
+#   id        identity tags ONLY — face/hair/eyes/body, NO clothes. The Stage-1 hero
+#             prompt; weight face-defining tags, e.g. "(green eyes:1.1)".
+#             (Inherited instead of written when `like` is set.)
+#   outfit    signature clothes. Appended to the hero AND auto-baked into the trigger
+#             at train time (colour/style variants too) -> an always-on costume. Use
+#             danbooru/WD14 vocab so it bakes (e.g. `pants` not `trousers`). Describe
+#             it once here; never hand-list outfit tags elsewhere. Mutually exclusive
+#             with `outfits` (a char is single-outfit OR modular, not both).
+#   outfits   MODULAR character: a [<char>.outfits] sub-table of <name> = <garments>,
+#             e.g. [mira.outfits] / winter = "long coat, ...". ONE LoRA where identity
+#             is always-on (<char>char) and each outfit is a swappable token
+#             <char>_<outfit> baked from its own frames. Emits one
+#             IL_DatasetEdit_<char>_<outfit> graph per outfit (id-only hero, outfit
+#             re-dressed at the edit stage so every outfit shares one face). Outfit
+#             names must match ^[a-z0-9]+$. Mutually exclusive with `outfit`/`like`.
+#             See CLOTHING_MODEL.md for outfit vs keep vs outfits vs like.
+#   like      "<other table>": inherit that entry's id + hero_seed + prune (same face
+#             + identity lock). For the SAME character in a DIFFERENT locked outfit ->
+#             a separate LoRA; write only the new outfit. Best for comics. The face is
+#             close, NOT pixel-identical (own hero re-render) — pin hero_seed + tight
+#             id to maximize the match. Any inherited field can be overridden here.
+#   hero_seed int pinning the Stage-1 hero FACE (generation only — NOT the training
+#             seed in train.toml). Set once you reroll to a face you like, so `like`
+#             variants reuse it. Defaults to the shared SEED (config.py).
+#   framing   (optional) full framing descriptor for the Stage-1 hero (no leading
+#             comma), overriding the global default. Default is full-body (captures
+#             the whole outfit); use e.g. "portrait, upper body, plain grey background,
+#             looking at viewer, neutral expression" for a face-focused character.
+#             Inherited via `like`.
+#   prune     EXTRA tags to bake beyond the outfit (e.g. identity, for a harder lock).
+#             Leave unset — the outfit already bakes; identity stays promptable.
+#   keep      (optional) garment tags to KEEP promptable instead of baking — so you can
+#             ADD or REMOVE them at inference (prompt the tag to wear it; omit/negative
+#             to drop it). Use WD14 vocab, e.g. keep = "coat, jacket" lets you take the
+#             overcoat off. (For reliable removal the dataset should also contain some
+#             frames WITHOUT the garment — see DATASET.md "removable garments".)
+#             Inherited via `like`. For a MODULAR character this is a PER-OUTFIT table
+#             [<char>.keep] (<outfit> = <garments to leave promptable>) — recommended,
+#             so you don't over-prune the whole costume.
+#   trigger   caption keyword. Defaults to "<name>char".
+#
+# MINIMAL entry (identity only — the checkpoint picks the clothes, promptable not locked):
+#   [rin]
+#   id = "1girl, solo, (red ponytail:1.1), (amber eyes:1.1)"
+# ============================================================================
+
+# ============================================================================
+# BENCHMARK + MODULAR TEMPLATE — mira is a MODULAR character: ONE LoRA where the
+# identity is always-on (mirachar) and the outfit is swappable at inference by a
+# per-outfit token (mira_hoodie / mira_winter). Identity is hard-locked (baked via
+# `prune` + a pinned `hero_seed`) so the face is the SAME across both outfits.
+# Train once (train_lora.ps1 -Char mira) -> one models/loras/mira_v1.
+#   inference:  mirachar, mira_hoodie   ->  identity + the hoodie outfit
+#               mirachar, mira_winter   ->  identity + the winter coat
+# Copy [mira] to add a modular character; for a single-outfit character use `outfit`
+# instead of [<char>.outfits] (see the roster below). CLOTHING_MODEL.md explains the
+# four clothing mechanisms (outfit / keep / outfits / like) and when to use each.
+# ============================================================================
+[mira]
+trigger   = "mirachar"                                                 # identity (always-on) caption keyword (default: <name>char)
+id        = "incase, 1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye"  # identity ONLY, weighted, no clothes
+hero_seed = 20250618                                                   # pins her face; ALL outfits share this one base hero
+prune     = "black hair, bob cut, red eyes, mole under eye, pale skin" # bake identity HARD -> mirachar alone = the same face
+framing   = "full body, standing, plain grey background, simple background, looking at viewer, neutral expression"  # explicit hero framing (this = the global full-body default; use "portrait, upper body, ..." for a face-focused character)
+
+# Each outfit -> a swappable token mira_<name>, baked from output/dataset/mira/<name>/.
+[mira.outfits]
+hoodie = "hoodie, pleated skirt, black thighhighs, sneakers"          # token mira_hoodie
+winter = "long coat, turtleneck sweater, scarf, knee boots"           # token mira_winter
+
+# Optional, per-outfit: garments left PROMPTABLE (add/remove at inference) instead of baked.
+[mira.keep]
+hoodie = "hoodie"                                                      # take the hoodie off with mira_hoodie present
+winter = "coat, long coat"                                            # omit/negative "coat" to drop the overcoat
+
+# ----------------------------------------------------------------------------
+# ROSTER — given the same full treatment as the benchmark (pinned hero_seed +
+# identity prune). Reroll each Hero Seed in ComfyUI to a face you like, then pin
+# that value here; the prune words must match the WD14 tagger's vocabulary to bake.
+# ----------------------------------------------------------------------------
+
+# Tennis player. Teal complements warm auburn hair; white flatters fair/freckled skin; nods to green eyes.
+# MODULAR: one LoRA, swap ariachar, aria_tennis  <->  ariachar, aria_gala at inference.
+[aria]
+id        = "incase, 1girl, solo, (long wavy auburn hair:1.1), (green eyes:1.1), freckles"
+hero_seed = 20250619                                                   # reroll -> pin a good face; ALL outfits share it
+prune     = "auburn hair, long hair, wavy hair, green eyes, freckles"  # identity lock (always-on)
+
+[aria.outfits]
+tennis = "tennis uniform, teal and white tennis dress, white visor, white wristbands, white shoes"  # token aria_tennis
+gala   = "elegant emerald evening gown, long gloves, silver necklace, high heels"                   # token aria_gala
+
+# Basketball player. Orange is the complement of blue eyes (pops) and vivid against black hair.
+[kael]
+id        = "incase, 1boy, solo, (tousled black hair:1.1), (sharp blue eyes:1.1)"
+outfit    = "basketball uniform, orange and white basketball jersey, orange basketball shorts, white headband, basketball shoes"
+hero_seed = 20250620                                                   # reroll -> pin a good face
+prune     = "black hair, messy hair, blue eyes"                        # identity lock
+
+# Superhero. Deep violet echoes the eyes, silver echoes the hair, both striking on pale skin.
+[nyx]
+id        = "incase, 1girl, solo, (silver bob hair:1.1), (violet eyes:1.1)"
+outfit    = "superhero costume, deep violet bodysuit, silver accents, silver belt, knee boots, purple cape"
+hero_seed = 20250621                                                   # reroll -> pin a good face
+prune     = "silver hair, bob cut, purple eyes"                        # identity lock

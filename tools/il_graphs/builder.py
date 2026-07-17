@@ -9,7 +9,13 @@ class Builder:
         self._nid = self._lid = 0
 
     def add(self, ntype, widgets=None, pos=(0, 0), title=None, mode=0, color=None, bgcolor=None):
-        n = copy.deepcopy(TEMPLATES[ntype])
+        try:
+            n = copy.deepcopy(TEMPLATES[ntype])
+        except KeyError:
+            raise KeyError(
+                f"no node template for {ntype!r} — add it to EXTRA_TEMPLATES in templates.py, "
+                f"or ensure a node of that type exists in the harvest source (MainGraphv10.json)"
+            ) from None
         self._nid += 1
         n["id"] = self._nid
         n["flags"] = {}

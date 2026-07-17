@@ -1,0 +1,41 @@
+# Declarative metadata for the `il_graphs` pack (Illustrious/SDXL anime characters).
+# Consumed by `dev build il_graphs`, `dev models install il_graphs`, and `dev train`.
+# Everything that differs per pack lives here; the only code is build() in devtools/packs/il_graphs.py.
+
+name = "il_graphs"
+kind = "image-char"
+output_subdir = ""            # "" = current flat user/default/workflows with the IL_ name prefix
+schema_version = 1            # bump when the generator changes shape (stamped into future output)
+models_manifest = "models.toml"
+
+# Custom-node submodules these workflows reference — NAMES only (matching custom_nodes/<name>).
+# `dev verify` / `dev build` check they're present + initialized. The exact pinned SHA is git's job:
+# it lives in the submodule gitlink, and `dev verify`'s global submodule-status check flags any that
+# drift from what's committed. So bumping a submodule needs NO edit here.
+# (An entry may optionally be `{ name = "X", sha = "…" }` to also assert a specific SHA, but that then
+# needs manual upkeep — prefer plain names and let git pin versions.)
+custom_nodes = [
+  "ComfyUI-GGUF",
+  "rgthree-comfy",
+  "was-ns",
+  "ComfyUI-Impact-Pack",
+  "ComfyUI-Impact-Subpack",
+  "ComfyUI-Advanced-ControlNet",
+  "ComfyUI-Inpaint-CropAndStitch",
+  "ComfyUI_IPAdapter_plus",
+  "ComfyUI-ultimate-openpose-editor",
+  "ComfyUI_UltimateSDUpscale",
+  "comfyui_text_to_pose",
+  "efficiency-nodes-comfyui",
+  "ComfyScript",
+]
+
+# Optional training profile. Present -> `dev train --pack il_graphs` works. A 3D/texture pack that
+# doesn't train LoRAs would simply omit this whole table.
+[train]
+trainer_script  = "sdxl_train_network.py"
+base_checkpoint = "models/checkpoints/oneObsession_v19Atypical.safetensors"
+trigger_suffix  = "char"                          # default trigger = <char><suffix>, e.g. ariachar
+roster_source   = "tools/lora_train/roster.json"  # produced by `dev build il_graphs`
+train_toml      = "tools/lora_train/train.toml"
+sd_scripts      = "tools/sd-scripts"

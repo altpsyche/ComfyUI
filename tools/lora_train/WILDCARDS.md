@@ -5,12 +5,21 @@ wildcard file. Edit those files to control the kind of variety your dataset gets
 
 ## Where
 
+Tracked, version-controlled — committed with the repo, survives a fresh clone:
 ```
-custom_nodes/ComfyUI-Impact-Pack/wildcards/*.txt
+tools/il_graphs/wildcards/*.txt
 ```
 
-> These live in the Impact-Pack **submodule** (untracked by this fork). They exist on this machine;
-> a fresh clone won't have them — re-create them there if you set up elsewhere.
+Impact-Pack reads them **natively** via its built-in `custom_wildcards` setting — no copying, no sync.
+One-time per machine, point it at this folder in `custom_nodes/ComfyUI-Impact-Pack/impact-pack.ini`:
+```
+[default]
+custom_wildcards = <repo>\tools\il_graphs\wildcards
+```
+
+> The Impact-Pack submodule's own `wildcards/` dir is checked **first**, so keep each axis file *only*
+> in the tracked folder above — don't also drop `pose.txt` etc. back into the submodule, or the stale
+> copy shadows this one.
 
 ## Format
 
@@ -44,9 +53,9 @@ The edit instruction is `..., __angle__, __pose__, __expression__, __framing__, 
 
 ## Edit + apply
 
-1. Open the `.txt`, add/remove/change lines (one per line), save.
+1. Open the `.txt` in `tools/il_graphs/wildcards/`, add/remove/change lines (one per line), save.
 2. **Reload the graph** in ComfyUI (or queue again) — wildcards are read live. **No `build_il_graphs.py`
-   regenerate needed.**
+   regenerate needed.** Commit the `.txt` to keep the change.
 
 ## Tips
 
@@ -56,8 +65,9 @@ The edit instruction is `..., __angle__, __pose__, __expression__, __framing__, 
 - **Keep options dataset-appropriate.** Every line should be a pose/scene a *clean training image* can
   show — avoid extreme crops or occlusions that hide the face.
 - **Want a new axis?** Add the token to `wtext` in `build_dataset_edit()`
-  ([`tools/il_graphs/graphs.py`](../il_graphs/graphs.py)) AND create the matching `.txt`, then regenerate.
-  Keep `__angle__/__pose__` leading the instruction — see README §6.4 (Qwen moves the pose less if scene
-  axes come first).
+  ([`tools/il_graphs/graphs.py`](../il_graphs/graphs.py)) AND create the matching `.txt` in
+  `tools/il_graphs/wildcards/`, then regenerate.
+  Keep `__angle__/__pose__` leading the instruction — see [DATASET.md](DATASET.md) (Qwen moves the pose
+  less if scene axes come first).
 - A wildcard token printed *literally* in the image = the `.txt` is missing or misnamed; fix the path and
   reload.

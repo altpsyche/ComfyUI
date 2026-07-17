@@ -1,0 +1,38 @@
+# Model stack for the il_graphs Qwen-Image-Edit dataset workflow.
+# Fetch with: dev models install il_graphs [--variant quant=Q5_K_M] [--with-optional]
+#
+# Tuned for a 16 GB GPU: Q5_K_M (~14 GB) fits with the text encoder offloaded to RAM.
+# Pick quant=Q4_K_M for less VRAM (lower quality) or quant=Q6_K if you have headroom.
+
+# Diffusion model (GGUF) -> models/unet/  (UnetLoaderGGUF reads from models/unet).
+# The quant tag stays UPPER-case in the repo filename.
+[[variants]]
+group   = "quant"
+repo    = "unsloth/Qwen-Image-Edit-2511-GGUF"
+dest    = "unet"
+pattern = "qwen-image-edit-2511-{variant}.gguf"
+choices = ["Q4_K_S", "Q4_K_M", "Q5_K_S", "Q5_K_M", "Q6_K"]
+default = "Q5_K_M"
+
+# Shared Qwen-Image components.
+[[models]]
+repo = "Comfy-Org/Qwen-Image_ComfyUI"
+src  = "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+dest = "text_encoders"
+
+[[models]]
+repo = "Comfy-Org/Qwen-Image_ComfyUI"
+src  = "split_files/vae/qwen_image_vae.safetensors"
+dest = "vae"
+
+# Lightning = fast 6-step gen (cfg 1.0).
+[[models]]
+repo = "lightx2v/Qwen-Image-Edit-2511-Lightning"
+src  = "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+dest = "loras"
+
+# Camera-angle variety LoRA — the dataset workflow drives it at ~0.8, so it's fetched by default.
+[[models]]
+repo = "fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA"
+src  = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
+dest = "loras"

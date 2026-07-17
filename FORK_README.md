@@ -2,45 +2,49 @@
 
 A fork of [ComfyUI](https://github.com/comfyanonymous/ComfyUI) (upstream remote: `Comfy-Org`)
 set up as a **reproducible, engine-only** install: every required custom node and the LoRA
-trainer are pinned as git submodules, and a one-shot `setup.bat` provisions the whole thing.
+trainer are pinned as git submodules, and a one-shot `./dev setup` provisions the whole thing.
 Workflows and models live elsewhere (see [What's NOT in this repo](#whats-not-in-this-repo)).
 
 - **Fresh-machine setup** → [ONBOARDING.md](ONBOARDING.md) (clone with submodules, prereqs, troubleshooting).
-- **This file** → the map: what every batch file / script / tool dir is, and how the fork relates to upstream.
+- **This file** → the map: what the `dev` CLI, the `devtools/` package, and each tool dir is, and how the fork relates to upstream.
 
 ## Quick start
 
-```powershell
+Run `./dev …` on Linux/macOS, `dev …` on Windows.
+
+```bash
 git clone --recurse-submodules git@github.com:altpsyche/ComfyUI.git
 cd ComfyUI
-.\setup.bat                 # provision the engine (see phases below)
-.\setup.bat --with-trainer  # ...and the LoRA-training venv (optional, multi-GB)
-.\run_comfy.bat             # launch ComfyUI
+./dev setup                 # provision the engine (see phases below)
+./dev setup --with-trainer  # ...and the LoRA-training venv (optional, multi-GB)
+./dev run                   # launch ComfyUI
 ```
 
-## Batch files (repo root)
+## The `dev` CLI (repo root)
 
-| File | What it does |
+| Command | What it does |
 |---|---|
-| **`setup.bat`** | One-shot, idempotent provisioner. Flags: `--gpu <mode>` (nvidia/amd-rdna3/amd-rdna35/amd-rdna4/intel-xpu/cpu), `--skip-torch`, **`--with-trainer`** (also build the LoRA trainer venv), `--no-color`. See [phases](#what-setupbat-does). |
-| **`run_comfy.bat`** | Launcher: activates `venv`, sets `PYTHONUTF8=1` + disables HF telemetry, runs `python main.py`. |
-| **`install_comfy.bat`** | ⚠️ Legacy stub (hand notes only) — **superseded by `setup.bat`**. Kept for reference; don't use. |
+| **`./dev setup`** | One-shot, idempotent provisioner. Flags: `--gpu <mode>` (nvidia/amd-rdna3/amd-rdna35/amd-rdna4/intel-xpu/cpu), `--skip-torch`, **`--with-trainer`** (also build the LoRA trainer venv), `--no-color`. See [phases](#what-dev-setup-does). |
+| **`./dev run`** | Launcher: activates `venv`, sets `PYTHONUTF8=1` + disables HF telemetry, runs `python main.py`. |
+| **`./dev verify`** | Smoke checks the install (also runs as the final phase of `./dev setup`). |
 
-## Scripts (`scripts/`, all called by `setup.bat`)
+## Setup phases (`devtools/setup/`, run by `./dev setup`)
 
-| Script | Phase | What it does |
+These used to be standalone PowerShell scripts; they are now phases of `./dev setup`, implemented in the **devtools/ package** (setup logic under `devtools/setup/`).
+
+| Phase | Step | What it does |
 |---|---|---|
-| **`install_torch.ps1`** | [4/6] | Maps GPU mode → PyTorch wheel index and force-reinstalls torch+torchvision. NVIDIA: autodetects CUDA from driver (≥580→cu130, ≥555→cu128, ≥525→cu121, ≥470→cu118). Skips if torch is already CUDA-enabled. |
-| **`install_node_reqs.ps1`** | [5/6] | Walks `custom_nodes/`, runs each pack's `requirements.txt` then `install.py` (Manager convention), and installs `ComfyScript` editable. Warns-and-continues on per-pack failure. |
-| **`install_trainer.ps1`** | optional (`--with-trainer`) | Builds the **LoRA trainer venv** at `tools/lora_train/.venv` (uv, Python 3.11): torch **cu128** for Blackwell, sd-scripts requirements, WD14-tagger deps (onnx/onnxruntime), prodigyopt, `accelerate config default`. Idempotent. |
-| **`verify.ps1`** | [6/6] | Smoke checks: torch sees GPU, ComfyScript loads, key packs present, `git submodule status` clean. Prints pinned SHAs. |
+| **torch install** | [4/6] | Maps GPU mode → PyTorch wheel index and force-reinstalls torch+torchvision. NVIDIA: autodetects CUDA from driver (≥580→cu130, ≥555→cu128, ≥525→cu121, ≥470→cu118). Skips if torch is already CUDA-enabled. |
+| **custom-node deps** | [5/6] | Walks `custom_nodes/`, runs each pack's `requirements.txt` then `install.py` (Manager convention), and installs `ComfyScript` editable. Warns-and-continues on per-pack failure. |
+| **trainer venv** | optional (`--with-trainer`) | Builds the **LoRA trainer venv** at `tools/lora_train/.venv` (uv, Python 3.11): torch **cu128** for Blackwell, sd-scripts requirements, WD14-tagger deps (onnx/onnxruntime), prodigyopt, `accelerate config default`. Idempotent. |
+| **verify** (`./dev verify`) | [6/6] | Smoke checks: torch sees GPU, ComfyScript loads, key packs present, `git submodule status` clean. Prints pinned SHAs. |
 
-### What `setup.bat` does
+### What `./dev setup` does
 
 `[1/6]` prereqs (python/git/ssh/gpu) · `[2/6]` `git submodule update --init --recursive` (pulls
 all custom nodes **and** `tools/sd-scripts`) · `[3/6]` create/activate `venv` · `[4/6]` ComfyUI
-`requirements.txt` + torch (`install_torch.ps1`) · `[5/6]` custom-node deps (`install_node_reqs.ps1`)
-· `[6/6]` verify · *(optional)* trainer venv (`install_trainer.ps1`, only with `--with-trainer`).
+`requirements.txt` + torch · `[5/6]` custom-node deps
+· `[6/6]` verify · *(optional)* trainer venv (only with `--with-trainer`). All phases live in `devtools/setup/`.
 
 ## Two Python environments (by design)
 
@@ -59,8 +63,8 @@ ComfyUI's venv. Both work on the RTX 5080 (Blackwell sm_120 needs CUDA 12.8+).
 | **`tools/il_graphs/`** | Python package that generates the **IL_\*** Illustrious/SDXL workflow family (comparison ladder IL_1–5 + feature graphs IL_IPAdapter/Pose/LCM/Dataset, each with a modular **LoRA bank**). Run `python tools/build_il_graphs.py`. Details: [IL_Graphs_README.md](user/default/workflows/IL_Graphs_README.md). |
 | **`tools/build_il_graphs.py`** | Thin entrypoint shim for the `il_graphs` package. |
 | **`tools/validate_workflow.py`** | Validates a generated workflow JSON against its `.rules.toml` (CLIP skip −2, CFG range, required nodes). |
-| **`tools/lora_train/`** | LoRA-training kit: runbook + `train_lora.ps1 -Char <name>` (auto-captions + trains) + `train_all.ps1` (whole roster) + `prep_captions.py` + `verify_env.py`. Characters come from the `CHARACTERS` roster in `il_graphs/config.py` (one `IL_DatasetEdit_<name>` Qwen-Image-Edit graph each). Full flow: [tools/lora_train/README.md](tools/lora_train/README.md). |
-| **`tools/sd-scripts/`** | kohya-ss/sd-scripts **submodule** (the trainer code). Provisioned by `install_trainer.ps1`. |
+| **`tools/lora_train/`** | LoRA-training kit: runbook + `./dev train <name>` (auto-captions + trains) + `./dev train --all` (whole roster) + `prep_captions.py` + `verify_env.py`. Characters come from the `CHARACTERS` roster in `il_graphs/config.py` (one `IL_DatasetEdit_<name>` Qwen-Image-Edit graph each). Full flow: [tools/lora_train/README.md](tools/lora_train/README.md). |
+| **`tools/sd-scripts/`** | kohya-ss/sd-scripts **submodule** (the trainer code). Provisioned by `./dev setup --with-trainer`. |
 
 ## Submodules
 
@@ -71,10 +75,10 @@ ComfyUI's venv. Both work on the RTX 5080 (Blackwell sm_120 needs CUDA 12.8+).
 ## Fork vs upstream
 
 - Remote: `origin = git@github.com:altpsyche/ComfyUI.git`; tracks `Comfy-Org/master` upstream.
-- **Fork-specific** (not upstream): `setup.bat`, `run_comfy.bat`, `scripts/*.ps1`, `tools/`,
+- **Fork-specific** (not upstream): the `dev` CLI, the `devtools/` package, `tools/`,
   `ONBOARDING.md`, this file, and `.gitmodules` (the pinned node set).
 - Sync upstream: `git fetch upstream && git merge upstream/master` (or the existing
-  `Comfy-Org:master` merge flow), then re-run `setup.bat` to pick up new core deps.
+  `Comfy-Org:master` merge flow), then re-run `./dev setup` to pick up new core deps.
 
 ## What's NOT in this repo
 

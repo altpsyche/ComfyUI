@@ -1,0 +1,115 @@
+# ============================================================================
+# LoRA training parameters — data-driven, layered. Edit here, not the .ps1.
+#
+# Most runs need NO edits here: `train_lora.ps1` flags cover one-off tweaks, and the
+# [defaults] below are a solid character-LoRA baseline. Edit this file to move the
+# baseline or to PERSIST per-character / preset settings.
+#
+# train_lora.ps1 resolves each value via train_config.py; precedence (highest wins):
+#
+#     explicit CLI flag  >  -Profile <name>  >  [train.<char>]  >  [defaults]
+#
+#   • [defaults]        baseline for every run.
+#   • [profiles.<name>] named bundles, chosen at runtime with -Profile <name>.
+#   • [train.<char>]    persistent per-character overrides (char = dataset folder name).
+#   • CLI flags         -Dim/-Steps/-Lr/-Resolution/... override everything for one run.
+#
+# Full flag<->key matrix: REFERENCE.md.  Preview a resolved run without training:
+#   train_lora.ps1 -Char <c> -DryRun
+# ============================================================================
+
+[defaults]
+# --- network ---
+dim = 16                       # LoRA rank. 32 for visually complex characters.
+alpha = 8                      # usually dim/2.
+network_module = "networks.lora"
+
+# --- optimizer (Blackwell-safe set; NOT adamw8bit — bitsandbytes on sm_120 is unverified) ---
+optimizer = "prodigy"          # prodigy | adamw | adafactor
+d_coef = 1.0                   # prodigy effective-LR knob; try 0.8 to reduce overcook on small sets.
+# LR overrides — leave "" to use the optimizer's own default (prodigy=1.0; adamw/adafactor=3e-4/3e-5).
+# Setting these overrides adamw/adafactor LR; prodigy LR is forced to 1.0 (tune it via d_coef instead).
+lr = ""
+unet_lr = ""
+text_encoder_lr = ""
+
+# --- schedule / steps ---
+steps = 1500                   # TARGET total steps; num_repeats is derived from it.
+epochs = 4                     # saves 1 LoRA/epoch -> N checkpoints to pick from.
+batch = 2
+lr_scheduler = "cosine"
+min_snr_gamma = "5"
+seed = 42
+save_every_n_epochs = 1
+
+# --- dataset / buckets ---
+resolution = 1024
+min_bucket_reso = 768
+max_bucket_reso = 1280
+bucket_reso_steps = 64
+min_images = 12                # refuse to train on a smaller set.
+
+# --- precision / runtime ---
+mixed_precision = "bf16"
+save_precision = "bf16"
+num_cpu_threads = 8
+
+# --- safety toggles: DON'T change these on an RTX 50xx / 16 GB card unless you know why. ---
+# (--sdpa avoids xformers/bitsandbytes Blackwell pain; no_half_vae avoids black tiles; bf16 +
+#  gradient_checkpointing + latent caching keep 16 GB training stable.)
+cache_latents = true
+cache_latents_to_disk = true
+sdpa = true
+no_half_vae = true
+gradient_checkpointing = true
+train_text_encoder = false     # -TrainTextEncoder flips this on (drops --network_train_unet_only).
+
+
+# ---------------------------------------------------------------------------
+# Profiles — pick with `train_lora.ps1 -Char <c> -Profile <name>`. Add your own.
+# ---------------------------------------------------------------------------
+[profiles.fast]                # quick, lower-quality test pass
+steps = 800
+dim = 8
+alpha = 4
+
+[profiles.quality]             # the default baseline, named for clarity
+dim = 16
+alpha = 8
+steps = 1500
+
+[profiles.complex]             # visually complex character (elaborate outfit/markings)
+dim = 32
+alpha = 16
+steps = 2000
+d_coef = 0.9
+
+
+# ---------------------------------------------------------------------------
+# Per-character persistent overrides. Table name = dataset folder / -Char name.
+# Any [defaults] key is overridable here; -Profile and explicit CLI flags still win.
+# ---------------------------------------------------------------------------
+
+# Benchmark character — extra capacity + a longer run so mira trains to a tight,
+# stable identity (the reference for comparing epochs / strengths / checkpoints).
+# NB: per-character IDENTITY (trigger/outfit/prune) and the hero FACE seed live in
+# characters.toml and reach the trainer via roster.json — NOT here. [train.<char>]
+# is training hyperparams only; the training `seed` (42) is a global RNG knob and
+# rarely worth changing per character.
+[train.mira]
+dim    = 32          # extra capacity to memorize the exact benchmark identity
+alpha  = 16          # dim/2
+steps  = 2000        # longer train for a tighter identity lock
+d_coef = 0.9         # prodigy: tame slightly so the longer run doesn't overcook
+
+# Template for your own per-character overrides (uncomment + edit). Every key is
+# optional; unset keys fall through to [profiles.*] then [defaults].
+# [train.nyx]
+# dim                = 32        # LoRA rank (capacity)
+# alpha              = 16        # usually dim/2
+# steps              = 2000      # TARGET total steps
+# d_coef             = 0.9       # prodigy effective-LR knob (lower = gentler)
+# optimizer          = "adamw"   # prodigy | adamw | adafactor
+# lr                 = "3e-4"    # adamw/adafactor LR (prodigy is forced to 1.0)
+# train_text_encoder = true      # also train the text encoder (stronger, more VRAM)
+# ---------------------------------------------------------------------------

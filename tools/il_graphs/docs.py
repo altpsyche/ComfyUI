@@ -54,29 +54,48 @@ DOCS = {
     "Quick composition / prompt checks (~4x faster, lower quality). Switch to a full tier for finals.",
     ["Edit prompts. Queue."],
     ["KSampler: lcm / sgm_uniform / 8 steps / cfg 1.5. lcm-lora ON in the loader."]),
-  "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF) -- SELF-CONTAINED, two "
-    "stages. STAGE 1 renders ONE hero from this character's id tags in your Illustrious checkpoint "
+  "IL_XYPlot": ("Pick-the-best-epoch grid (efficiency-nodes XY Plot). Renders the same prompt + seed "
+    "across a batch of LoRA files (the saved epochs) crossed with a weight sweep, so you can compare "
+    "likeness vs over-bake at a glance. Generic — works for any trained character.",
+    "After training, to choose which saved epoch and which LoRA strength to keep.",
+    ["Copy the epochs to compare into models/loras/_xyplot/ (e.g. <char>_v1.safetensors + a few -0000NN).",
+     "Add the character's trigger word (e.g. ursachar) to the Efficient Loader's positive prompt.",
+     "Keep the seed FIXED, set the Y weight sweep (default 0.5->0.9 / 3 cols), Queue once -> output/xyplot/.",
+     "Pick the (epoch, weight) cell with the best likeness that isn't over-cooked / over-saturated."],
+    ["X axis = LoRA files in models/loras/_xyplot/ (path relative to the ComfyUI folder; set absolute if elsewhere).",
+     "Y axis = LoRA weight, swept Y_first->Y_last over Y_batch_count columns.",
+     "KSampler (Efficient): euler_ancestral / normal / 30 / cfg 5 — matches IL_1_Base.",
+     "CLIP skip -2 is set in the Efficient Loader widget (no separate CLIPSetLastLayer node)."]),
+  "IL_DatasetEdit": ("FRONTIER dataset generator (Qwen-Image-Edit-2511, GGUF) -- SELF-CONTAINED. "
+    "STAGE 1 renders ONE hero from this character's id tags in your Illustrious checkpoint "
     "(fixed Hero Seed + HERO preview). STAGE 2 re-poses that hero into many varied shots holding "
-    "identity AND art style, per a wildcard instruction. A brand-new character needs NO pre-existing "
-    "image. Needs scripts/install_qwen_edit.ps1 + the ComfyUI-GGUF node.",
+    "identity AND art style, per a wildcard instruction. STAGE 3 re-details each frame's face + hands "
+    "in your checkpoint so the dataset stays on-model + crisp. A brand-new character needs NO "
+    "pre-existing image. Needs `dev models install il_graphs` + the ComfyUI-GGUF node.",
     "Best-consistency dataset bootstrap for a FULLY-ORIGINAL character (no danbooru anchor needed).",
     ["STAGE 1: reroll the Hero Seed and watch HERO preview until you like the face; then leave it fixed.",
      "STAGE 2: reroll the Edit-instruction seed (batch-queue ~40) to fill output/dataset/<name>/ with varied poses/angles.",
-     "Curate the on-model ~30 in place, then: train_lora.ps1 -Char <name> (same flow as the hero/IPAdapter route).",
+     "Curate the on-model ~30 in place, then: ./dev train <name> (same flow as the hero/IPAdapter route).",
      "Load the trained LoRA in any IL workflow's LoRA bank (toggle on + add the trigger word)."],
     ["STAGE 1 hero: euler_a / normal / 30 / cfg 5, 832x1216, your checkpoint (id-driven prompt).",
+     "STAGE 1b hero detail: the ONE hero is face+hand detailed in your SDXL checkpoint (denoise ~0.35, "
+     "identity-only face prompt) BEFORE Qwen, so a crisp on-model character propagates into every frame -- "
+     "one detail pass total, not one per frame. Toggle QE_HERO_DETAIL in il_graphs/graphs.py.",
      "Lightning 4-step LoRA -> edit KSampler 6 steps / cfg 1.0 / euler / simple (fast; makes Q5 practical on 16 GB).",
      "Multiple-angles LoRA (strength ~0.8) drives camera-angle variety; lower it if identity drifts.",
+     "STAGE 3 (optional, off by default): ALSO detail each edited frame -- set QE_STAGE3_POLISH=True only "
+     "if Qwen still softens faces despite the detailed hero.",
      "Reference-latent-method nodes are kept ON (needed for the repackaged GGUF build).",
      "Edit instruction node is mode='populate': the UI shows the resolved prompt and re-rolls each "
      "queue; populated_text holds the wildcards too, so a headless API POST still expands them in the "
      "node backend (keyed on the seed).",
      "Instruction keeps __angle__/__pose__ leading (then framing/background/lighting); a framing-first "
      "rewrite reduced pose variety, so don't reorder pose behind the scene axes.",
-     "Too slow / OOM? re-download with install_qwen_edit.ps1 -Quant Q4_K_M.",
+     "Too slow / OOM? re-download with ./dev models install il_graphs --variant quant=Q4_K_M.",
      "Wildcards (__framing__/__angle__/__pose__/__expression__/__background__/__lighting__) live in "
-     "custom_nodes/ComfyUI-Impact-Pack/wildcards/.",
-     "Full guide (setup, anatomy, instruction system, tuning, troubleshooting): tools/lora_train/README.md section 6g."]),
+     "tools/il_graphs/wildcards/ (tracked; Impact-Pack reads them via its custom_wildcards setting).",
+     "Full guide (setup, anatomy, instruction system, tuning, troubleshooting): "
+     "tools/lora_train/DATASET.md; training knobs: tools/lora_train/REFERENCE.md."]),
 }
 
 
@@ -106,10 +125,20 @@ def md(name, g):
               "Positive/Negative** above — there is *no* separate upscaler prompt. Only the "
               "hand detailer (and the face-inpaint node in Max) have their own prompt nodes."]
 
+    low_cfg = name == "IL_LCM" or name.startswith("IL_DatasetEdit")
+    if name == "IL_XYPlot":
+        cfg_line = ("A CFG >= 5 floor (on the Efficient KSampler) is enforced by the rules file; "
+                    "CLIP skip -2 is set in the Efficient Loader widget.")
+    elif low_cfg:
+        cfg_line = ("CLIP skip -2 enforced by the rules file (CFG is intentionally low here for "
+                    "LCM / Lightning, so no CFG floor is applied).")
+    else:
+        cfg_line = ("CLIP skip -2 and a CFG >= 5 floor (on every sampler — KSampler / USDU / detailers) "
+                    "enforced by the rules file.")
     s += ["", "## Validate", "```",
           f"python tools/validate_workflow.py user/default/workflows/{name}.json", "```", "",
           f"Default checkpoint **{CKPT.split('.')[0]}** (swap in the Checkpoint node). "
-          "Fixed seed 1234567890. CLIP skip -2, CFG 5 enforced by the rules file.", "",
+          f"Fixed seed 1234567890. {cfg_line}", "",
           "_Auto-generated by `tools/build_il_graphs.py` — edit there, not here. "
           "Family overview: IL_Graphs_README.md._"]
     return "\n".join(s) + "\n"

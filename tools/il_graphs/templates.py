@@ -2,6 +2,11 @@ from __future__ import annotations
 import json
 from .config import SRC, SEED
 
+if not SRC.exists():
+    raise RuntimeError(
+        f"harvest source workflow not found: {SRC}\n"
+        f"il_graphs harvests node templates from it — run build_il_graphs from the repo root and "
+        f"ensure MainGraphv10.json exists under user/default/workflows/.")
 _src = json.loads(SRC.read_text(encoding="utf-8"))
 TEMPLATES: dict[str, dict] = {}
 for _n in _src["nodes"]:
@@ -59,6 +64,9 @@ EXTRA_TEMPLATES: dict[str, dict] = {
         size=(400, 280), cnr="ComfyUI-Impact-Pack"),
     # Impact-Pack wildcard PROCESSOR: expands __wildcards__ -> a plain STRING (no model/clip).
     # required: wildcard_text, populated_text, mode, seed(+control), "Select to add Wildcard".
+    # NB: `mode` carries a populate/fixed string value ("populate"); the "BOOLEAN" slot-type label
+    # below is cosmetic (mode is a pure widget, never linked) and is left as-is so generated graphs
+    # stay byte-stable. ImpactWildcardEncode labels the same field "COMBO" — both load fine.
     "ImpactWildcardProcessor": _tpl("ImpactWildcardProcessor",
         [_io("wildcard_text", "STRING", widget=True), _io("populated_text", "STRING", widget=True),
          _io("mode", "BOOLEAN", widget=True), _io("seed", "INT", widget=True),
@@ -108,6 +116,65 @@ EXTRA_TEMPLATES: dict[str, dict] = {
          _io("image2", "IMAGE"), _io("image3", "IMAGE"), _io("prompt", "STRING", widget=True)],
         [_io("CONDITIONING", "CONDITIONING", links=True)],
         [""], size=(420, 200), cnr="comfy-core"),
+
+    # ---- efficiency-nodes (jags111) — used by IL_XYPlot to grid LoRA epochs x strength.
+    # Schemas read from custom_nodes/efficiency-nodes-comfyui/efficiency_nodes.py INPUT/RETURN. ----
+    # all-in-one loader (ckpt + vae + clip-skip + prompt encode + empty latent). widgets:
+    # [ckpt, vae, clip_skip, lora_name, lora_model_str, lora_clip_str, positive, negative,
+    #  token_normalization, weight_interpretation, latent_w, latent_h, batch_size]
+    "Efficient Loader": _tpl("Efficient Loader",
+        [_io("ckpt_name", "COMBO", widget=True), _io("vae_name", "COMBO", widget=True),
+         _io("clip_skip", "INT", widget=True), _io("lora_name", "COMBO", widget=True),
+         _io("lora_model_strength", "FLOAT", widget=True), _io("lora_clip_strength", "FLOAT", widget=True),
+         _io("positive", "STRING", widget=True), _io("negative", "STRING", widget=True),
+         _io("token_normalization", "COMBO", widget=True), _io("weight_interpretation", "COMBO", widget=True),
+         _io("empty_latent_width", "INT", widget=True), _io("empty_latent_height", "INT", widget=True),
+         _io("batch_size", "INT", widget=True),
+         _io("lora_stack", "LORA_STACK"), _io("cnet_stack", "CONTROL_NET_STACK")],
+        [_io("MODEL", "MODEL", links=True), _io("CONDITIONING+", "CONDITIONING", links=True),
+         _io("CONDITIONING-", "CONDITIONING", links=True), _io("LATENT", "LATENT", links=True),
+         _io("VAE", "VAE", links=True), _io("CLIP", "CLIP", links=True),
+         _io("DEPENDENCIES", "DEPENDENCIES", links=True)],
+        ["model.safetensors", "Baked VAE", -2, "None", 1.0, 1.0, "positive", "negative",
+         "none", "comfy", 832, 1216, 1],
+        size=(400, 320), cnr="efficiency-nodes-comfyui"),
+    # KSampler with an optional `script` input (the XY Plot SCRIPT plugs in here). seed widget carries a
+    # control_after_generate entry. widgets: [seed, control, steps, cfg, sampler, scheduler, denoise,
+    # preview_method, vae_decode]
+    "KSampler (Efficient)": _tpl("KSampler (Efficient)",
+        [_io("model", "MODEL"), _io("seed", "INT", widget=True), _io("steps", "INT", widget=True),
+         _io("cfg", "FLOAT", widget=True), _io("sampler_name", "COMBO", widget=True),
+         _io("scheduler", "COMBO", widget=True), _io("positive", "CONDITIONING"),
+         _io("negative", "CONDITIONING"), _io("latent_image", "LATENT"), _io("denoise", "FLOAT", widget=True),
+         _io("preview_method", "COMBO", widget=True), _io("vae_decode", "COMBO", widget=True),
+         _io("optional_vae", "VAE"), _io("script", "SCRIPT")],
+        [_io("MODEL", "MODEL", links=True), _io("CONDITIONING+", "CONDITIONING", links=True),
+         _io("CONDITIONING-", "CONDITIONING", links=True), _io("LATENT", "LATENT", links=True),
+         _io("VAE", "VAE", links=True), _io("IMAGE", "IMAGE", links=True)],
+        [0, "fixed", 20, 7.0, "euler", "normal", 1.0, "auto", "true"],
+        size=(340, 360), cnr="efficiency-nodes-comfyui"),
+    # XY Plot script: combines the X/Y axes (+ loader DEPENDENCIES) into a SCRIPT for the Efficient KSampler.
+    "XY Plot": _tpl("XY Plot",
+        [_io("grid_spacing", "INT", widget=True), _io("XY_flip", "COMBO", widget=True),
+         _io("Y_label_orientation", "COMBO", widget=True), _io("cache_models", "COMBO", widget=True),
+         _io("ksampler_output_image", "COMBO", widget=True),
+         _io("dependencies", "DEPENDENCIES"), _io("X", "XY"), _io("Y", "XY")],
+        [_io("SCRIPT", "SCRIPT", links=True)],
+        [10, "False", "Horizontal", "True", "Plot"], size=(320, 200), cnr="efficiency-nodes-comfyui"),
+    # XY axis source: a batch of LoRA files (X) crossed with a weight sweep (Y). Outputs BOTH X and Y.
+    # widgets: [input_mode, lora_name, model_str, clip_str, X_batch_count, X_batch_path, X_subdirs,
+    #  X_batch_sort, X_first, X_last, Y_batch_count, Y_first, Y_last]
+    "XY Input: LoRA Plot": _tpl("XY Input: LoRA Plot",
+        [_io("input_mode", "COMBO", widget=True), _io("lora_name", "COMBO", widget=True),
+         _io("model_strength", "FLOAT", widget=True), _io("clip_strength", "FLOAT", widget=True),
+         _io("X_batch_count", "INT", widget=True), _io("X_batch_path", "STRING", widget=True),
+         _io("X_subdirectories", "BOOLEAN", widget=True), _io("X_batch_sort", "COMBO", widget=True),
+         _io("X_first_value", "FLOAT", widget=True), _io("X_last_value", "FLOAT", widget=True),
+         _io("Y_batch_count", "INT", widget=True), _io("Y_first_value", "FLOAT", widget=True),
+         _io("Y_last_value", "FLOAT", widget=True), _io("lora_stack", "LORA_STACK")],
+        [_io("X", "XY", links=True), _io("Y", "XY", links=True)],
+        ["X: LoRA Batch, Y: LoRA Weight", "None", 1.0, 1.0, 3, "", False, "ascending",
+         0.0, 1.0, 3, 0.5, 0.9], size=(400, 360), cnr="efficiency-nodes-comfyui"),
 }
 for _k, _v in EXTRA_TEMPLATES.items():
     TEMPLATES.setdefault(_k, _v)
