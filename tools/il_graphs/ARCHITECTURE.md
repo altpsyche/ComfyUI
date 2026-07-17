@@ -10,9 +10,9 @@ itself is *data* — [`characters.toml`](characters.toml), not code.
 
 ## The loop (the contract)
 
-```powershell
-python tools/build_il_graphs.py            # regenerate all graphs + roster.json (+ validate). --no-validate to skip
-cd tools && python -m pytest tests/ -q     # must stay green
+```sh
+./dev build il_graphs                      # regenerate all graphs + roster.json (+ validate)
+python -m pytest tools/tests -q            # must stay green
 ```
 Every emitted graph is **golden-locked**: `tests/test_golden.py` byte-compares the JSON against
 `tests/golden/`. A change that alters output **fails the test on purpose** — if the change is intended,
@@ -79,7 +79,7 @@ The toolchain is SDXL-locked today; extending to another family is additive, not
 1. **Generation:** add a new `build_<family>_dataset_edit()` (or a parallel dataset builder) in
    `graphs.py`, with any new node types in `EXTRA_TEMPLATES`. Emit it from `build.py` with its own
    `*.rules.toml` (set/clear the CLIP-skip and CFG-floor rules as that model needs). Golden-snapshot it.
-2. **Training:** point `train_lora.ps1 -Base` at the checkpoint for another **SDXL** model (already
+2. **Training:** point `./dev train --base` at the checkpoint for another **SDXL** model (already
    supported); a non-SDXL model needs a different sd-scripts script (`train_network.py` /
    `flux_train_network.py` / …) — see the **model-compatibility matrix** in
    [../lora_train/REFERENCE.md](../lora_train/REFERENCE.md).

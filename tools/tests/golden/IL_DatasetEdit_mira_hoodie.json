@@ -281,7 +281,7 @@
         "Node name for S&R": "CLIPTextEncode"
       },
       "widgets_values": [
-        "1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye, hoodie, pleated skirt, black thighhighs, sneakers, full body, standing, plain grey background, simple background, looking at viewer, neutral expression"
+        "incase, 1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye, hoodie, pleated skirt, black thighhighs, sneakers, full body, standing, plain grey background, simple background, looking at viewer, neutral expression"
       ],
       "title": "Hero prompt (identity + outfit)"
     },
@@ -515,7 +515,7 @@
       "widgets_values": [
         20250618,
         "fixed",
-        30,
+        28,
         5,
         "euler_ancestral",
         "normal",
@@ -616,7 +616,7 @@
         "Node name for S&R": "CLIPTextEncode"
       },
       "widgets_values": [
-        "1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye"
+        "incase, 1girl, solo, (short black bob:1.1), (red eyes:1.1), pale skin, mole under eye"
       ],
       "title": "Hero face prompt (identity only)"
     },
@@ -2685,7 +2685,7 @@
         "text": ""
       },
       "widgets_values": [
-        "QWEN-EDIT DATASET TOOL ('mira_hoodie') -- self-contained: it MAKES the hero, then re-poses it.\nSTAGE 1 (left): reroll 'Hero Seed' and watch HERO preview until you like the face (rendered\nfrom this character's id tags in YOUR checkpoint, then face+hand DETAILED so it's crisp). Then\nleave Hero Seed fixed on that value. (Reroll feels slow? mute the 'Face + Hand Detail' group.)\nSTAGE 2: leave 'Edit instruction' seed control = randomize; set batch count ~40 + Queue once\n  -> output/dataset/mira/hoodie/. Each frame = that DETAILED hero re-posed into a new framing/\n  angle/pose/expression/background/lighting, same identity + art style. (mode 'populate': the\n  bottom box shows the resolved prompt and re-rolls each queue; also expands headless via backend.)\nThen curate the best 25-40 and run: tools/lora_train/train_lora.ps1 -Char mira.\nWildcards (__angle__/__pose__/__expression__/__framing__/__background__/__lighting__) live in\n  ComfyUI-Impact-Pack/wildcards/. Too slow / OOM? re-run install_qwen_edit.ps1 -Quant Q4_K_M.\nPoses too similar? __pose__/__angle__ lead the instruction on purpose -- raise the multiple-angles\n  LoRA toward 1.0, or drop a scene axis. Identity drifting? lower the multiple-angles LoRA.\nQUALITY: the HERO is detailed up front (one pass) so every frame inherits a crisp face. If Qwen\n  still softens faces, set QE_STAGE3_POLISH=True in il_graphs/graphs.py to ALSO detail each frame."
+        "QWEN-EDIT DATASET TOOL ('mira_hoodie') -- self-contained: it MAKES the hero, then re-poses it.\nSTAGE 1 (left): reroll 'Hero Seed' and watch HERO preview until you like the face (rendered\nfrom this character's id tags in YOUR checkpoint, then face+hand DETAILED so it's crisp). Then\nleave Hero Seed fixed on that value. (Reroll feels slow? mute the 'Face + Hand Detail' group.)\nSTAGE 2: leave 'Edit instruction' seed control = randomize; set batch count ~40 + Queue once\n  -> output/dataset/mira/hoodie/. Each frame = that DETAILED hero re-posed into a new framing/\n  angle/pose/expression/background/lighting, same identity + art style. (mode 'populate': the\n  bottom box shows the resolved prompt and re-rolls each queue; also expands headless via backend.)\nThen curate the best 25-40 and run: ./dev train mira.\nWildcards (__angle__/__pose__/__expression__/__framing__/__background__/__lighting__) live in\n  ComfyUI-Impact-Pack/wildcards/. Too slow / OOM? re-run ./dev models install il_graphs --variant quant=Q4_K_M.\nPoses too similar? __pose__/__angle__ lead the instruction on purpose -- raise the multiple-angles\n  LoRA toward 1.0, or drop a scene axis. Identity drifting? lower the multiple-angles LoRA.\nQUALITY: the HERO is detailed up front (one pass) so every frame inherits a crisp face. If Qwen\n  still softens faces, set QE_STAGE3_POLISH=True in il_graphs/graphs.py to ALSO detail each frame."
       ],
       "color": "#432",
       "bgcolor": "#322",

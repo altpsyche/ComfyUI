@@ -1,7 +1,7 @@
 """Resolve LoRA training parameters by layering, and print the result as JSON.
 
-`train_lora.ps1` calls this with `--char`, optional `--profile`, and any explicitly-set CLI flags as
-repeated `--set key=value` overrides. Precedence (highest wins):
+`dev train` (devtools/train) resolves params through this with `--char`, an optional `--profile`,
+and any explicitly-set CLI flags as `--set key=value` overrides. Precedence (highest wins):
 
     explicit CLI override  >  -Profile preset  >  [train.<char>]  >  [defaults]
 

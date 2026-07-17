@@ -23,20 +23,22 @@ one that doesn't resemble any danbooru character, so a text tag can't carry the 
   it adds a per-frame SDXL pass, so it's slower).
 
 The dataset only needs *recognizably the same person*; curation drops outliers and the trained LoRA
-averages the rest into the final exact face. Curate → `train_lora.ps1`.
+averages the rest into the final exact face. Curate → `./dev train`.
 
 ## One-time setup
 
 The model is **Qwen-Image-Edit-2511**, run as a quantized **GGUF** to fit a 16 GB GPU. It needs the
-**ComfyUI-GGUF** node (a submodule added by `setup.bat`; if missing:
+**ComfyUI-GGUF** node (a submodule added by `./dev setup`; if missing:
 `git submodule update --init custom_nodes/ComfyUI-GGUF` then install its `requirements.txt` into the
 ComfyUI venv).
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1
-#   -Quant Q4_K_M    # smaller/faster, lower quality   (default Q5_K_M)
-#   -SkipAnglesLora  # skip the camera-angles LoRA
+Run `./dev …` on Linux/macOS, `dev …` on Windows.
+
+```bash
+./dev models install il_graphs
+#   --variant quant=Q4_K_M    # smaller/faster, lower quality   (default Q5_K_M)
 ```
+Both the Lightning and multiple-angles LoRAs are always fetched.
 Idempotently downloads (~23 GB total) into the right `models/` subfolders:
 
 | File | → folder | Role |
@@ -49,7 +51,7 @@ Idempotently downloads (~23 GB total) into the right `models/` subfolders:
 
 > **Quant guide (16 GB):** `Q5_K_M` is the sweet spot (usable quality, encoder offloaded to RAM).
 > `Q4_K_M` on OOM / for speed (noticeably weaker). `Q6_K` only with VRAM headroom. Re-run the
-> installer with a different `-Quant` to swap — it skips files already present.
+> installer with a different `--variant quant=…` to swap — it skips files already present.
 
 Then `python tools/build_il_graphs.py` emits one `IL_DatasetEdit_<name>` per roster character with the
 Stage-1 prompt (the `id`), Stage-2 model, and `dataset/<name>/<name>` save prefix all pre-wired.
@@ -83,7 +85,7 @@ Stage-1 prompt (the `id`), Stage-2 model, and `dataset/<name>/<name>` save prefi
    `IL_DatasetEdit_<name>.api.json`, then `python tools/lora_train/gen_dataset.py <name> -n 40` queues
    it N times with fresh seeds (or `--all` for the roster). See [REFERENCE.md](REFERENCE.md).
 5. **Curate:** delete melted/off-model/duplicate frames **in place**. Keep the best **25–40** (min
-   **12**), varied in pose/angle/scene. Then train: `train_lora.ps1 -Char <name>` (or `train_all.ps1`).
+   **12**), varied in pose/angle/scene. Then train: `./dev train <name>` (or `./dev train --all`).
 
 ## The edit instruction (driving variety)
 
@@ -123,7 +125,7 @@ If you settle on better defaults (LoRA strengths, steps, instruction), bake them
 | Style drifts from your checkpoint | ensure the hero is rendered in your checkpoint; Stage 1b re-renders its face there too. The face prompt is identity-only by design |
 | Faces over-cooked | lower `QE_HERO_FACE_DENOISE` (0.35 → 0.25) |
 | Output too zoomed/cropped | the ref auto-scales via `FluxKontextImageScale`; add framing words to `framing.txt` |
-| Too slow per frame | the detail pass is now on the hero ONCE (not per frame), so per-edit cost is just `QE_EDIT_STEPS` (6) + the model stack; a real slowdown is environmental (cold ~24 GB reload, other GPU apps, encoder offload). `-Quant Q4_K_M` if the encoder swap dominates. (Don't enable `QE_STAGE3_POLISH` unless you need it — it re-adds a per-frame pass.) |
+| Too slow per frame | the detail pass is now on the hero ONCE (not per frame), so per-edit cost is just `QE_EDIT_STEPS` (6) + the model stack; a real slowdown is environmental (cold ~24 GB reload, other GPU apps, encoder offload). `./dev models install il_graphs --variant quant=Q4_K_M` if the encoder swap dominates. (Don't enable `QE_STAGE3_POLISH` unless you need it — it re-adds a per-frame pass.) |
 
 ## Removable garments (coat-off frames)
 
@@ -149,10 +151,10 @@ A 70/30 with-coat / without-coat split is plenty for clean on/off control.
 | Every frame the same pose/angle | First the *prompt* must roll (`mode: populate`, seed = randomize — bottom box changes each queue). If the prompt rolls but the *image* doesn't, that's Qwen being conservative: keep `__angle__/__pose__` leading and raise the multiple-angles LoRA toward 1.0. Headless? use `gen_dataset.py` (it bumps seeds per POST); a raw POST keeps the saved seed. |
 | Images for all characters in one folder | Old prefix bug; ensure the SaveImage prefix is `dataset/<name>/<name>` (regenerate). |
 | `__pose__` etc. appear literally in the image | Wildcard file missing/misnamed — files go in `custom_nodes/ComfyUI-Impact-Pack/wildcards/`; reload graph. |
-| `ImpactWildcardProcessor` missing / red | Impact-Pack not loaded — `setup.bat` / `install_node_reqs.ps1`. |
+| `ImpactWildcardProcessor` missing / red | Impact-Pack not loaded — re-run `./dev setup`. |
 | `UnetLoaderGGUF` missing / red | ComfyUI-GGUF not loaded — `git submodule update --init custom_nodes/ComfyUI-GGUF` + install its `requirements.txt`. |
-| Model not in a dropdown | not downloaded — run `scripts/install_qwen_edit.ps1`; confirm it landed in the listed `models/` subfolder. |
+| Model not in a dropdown | not downloaded — run `./dev models install il_graphs`; confirm it landed in the listed `models/` subfolder. |
 | Edited frame ignores the hero | confirm Stage-1 `Hero decode` feeds **Scale ref**, and that feeds **image1** on both encoders; keep the reference-method nodes ON. |
 | Output not anime / off-style | Stage 1 renders in your checkpoint (`CKPT`) — if off, tighten `id` or add an IL img2img re-skin pass. |
 | Stage-1 hero looks wrong | tighten the `id` tags (weight face-defining ones); reroll the Hero Seed. |
-| OOM / too slow generating | `scripts\install_qwen_edit.ps1 -Quant Q4_K_M`; close other GPU apps (check `nvidia-smi`). |
+| OOM / too slow generating | `./dev models install il_graphs --variant quant=Q4_K_M`; close other GPU apps (check `nvidia-smi`). |

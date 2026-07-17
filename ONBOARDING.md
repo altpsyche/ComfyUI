@@ -2,33 +2,35 @@
 
 This fork pins every required custom node + tooling submodule for reproducible engine setup across machines. **Workflows + models live in separate repos**; this repo is the engine only.
 
-> Map of the fork (every batch file, script, and tool dir): [FORK_README.md](FORK_README.md).
+> Map of the fork (the `dev` CLI, the `devtools/` package, and every tool dir): [FORK_README.md](FORK_README.md).
 
-```powershell
+Run `./dev …` on Linux/macOS, `dev …` on Windows.
+
+```bash
 # 1. Clone with all submodules (uses SSH — github SSH key required)
 git clone --recurse-submodules git@github.com:<your-user>/ComfyUI.git
 cd ComfyUI
 
 # 2. One-shot engine install (verifies prereqs, inits submodules, creates venv,
 #    installs torch/ComfyUI/all custom-node pip deps, runs smoke check)
-.\setup.bat
+./dev setup
 
 #    Non-NVIDIA GPU? pick a mode:
-.\setup.bat --gpu amd-rdna3      # AMD RX 7000 (Windows)
-.\setup.bat --gpu amd-rdna35     # AMD Strix halo / Ryzen AI Max+
-.\setup.bat --gpu amd-rdna4      # AMD RX 9000
-.\setup.bat --gpu intel-xpu      # Intel Arc
-.\setup.bat --gpu cpu            # CPU only
+./dev setup --gpu amd-rdna3      # AMD RX 7000 (Windows)
+./dev setup --gpu amd-rdna35     # AMD Strix halo / Ryzen AI Max+
+./dev setup --gpu amd-rdna4      # AMD RX 9000
+./dev setup --gpu intel-xpu      # Intel Arc
+./dev setup --gpu cpu            # CPU only
 
 #    Optional: also build the LoRA-training venv (kohya sd-scripts, multi-GB torch cu128):
-.\setup.bat --with-trainer       # see tools/lora_train/README.md
+./dev setup --with-trainer       # see tools/lora_train/README.md
 
 # 3. Get your workflows + model manifest (separate repo, planned)
 #    git clone git@github.com:<your-user>/comfyui-workflows.git
 #    Place per the workflows repo's own README.
 
 # 4. Launch
-.\run_comfy.bat
+./dev run
 ```
 
 ## Prerequisites
@@ -59,20 +61,20 @@ All pinned to specific commit SHAs. `git submodule status` shows exact versions.
 
 ## Bumping a submodule
 
-```powershell
-cd custom_nodes\<pack-name>
+```sh
+cd custom_nodes/<pack-name>
 git fetch
 git checkout <new-sha>
-cd ..\..
+cd ../..
 git add custom_nodes\<pack-name>
 git commit -m "bump <pack> to <sha>"
 ```
 
-After bumping, re-run `.\setup.bat` to pick up new pip deps the upstream may have added.
+After bumping, re-run `./dev setup` to pick up new pip deps the upstream may have added.
 
 ## Re-running setup
 
-`setup.bat` is idempotent. Safe to re-run after pulling new commits, bumping submodules, or adding custom nodes.
+`./dev setup` is idempotent. Safe to re-run after pulling new commits, bumping submodules, or adding custom nodes.
 
 ## Troubleshooting
 
@@ -80,10 +82,10 @@ After bumping, re-run `.\setup.bat` to pick up new pip deps the upstream may hav
 |---|---|
 | Phase 1 fails on SSH | Configure SSH key for github.com, retry |
 | Phase 2 fails on submodule | Check upstream URL still reachable, retry with `git submodule update --init --recursive --depth 1` |
-| Torch install picks wrong CUDA | Edit `scripts/install_torch.ps1`, adjust `$cudaMajor` mapping, re-run setup |
-| Custom node fails to load in ComfyUI | Re-run `scripts/install_node_reqs.ps1` |
+| Torch install picks wrong CUDA | Adjust the CUDA→wheel mapping in the `devtools/` package (`devtools/setup/`), re-run `./dev setup` |
+| Custom node fails to load in ComfyUI | Re-run `./dev setup` (re-runs the custom-node deps phase) |
 | `ComfyScript` import fails | Re-run `pip install -e custom_nodes/ComfyScript[default]` inside venv |
-| `ModuleNotFoundError: comfy_aimdo` | `pip install -r requirements.txt` (setup.bat does this automatically) |
+| `ModuleNotFoundError: comfy_aimdo` | `pip install -r requirements.txt` (`./dev setup` does this automatically) |
 
 ## Restoring a known-good state
 

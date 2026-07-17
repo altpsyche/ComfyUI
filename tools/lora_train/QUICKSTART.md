@@ -5,9 +5,11 @@ Terse loop. **Can't-miss checklist: [ADD_CHARACTER.md](ADD_CHARACTER.md).** Conc
 
 ## Once per machine
 
-```powershell
-setup.bat --with-trainer                                                 # trainer venv
-powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # Qwen-Edit stack (~23 GB)
+Run `./dev …` on Linux/macOS, `dev …` on Windows.
+
+```bash
+./dev setup --with-trainer        # trainer venv
+./dev models install il_graphs    # Qwen-Edit stack (~23 GB)
 ```
 
 ## New character
@@ -19,16 +21,16 @@ powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # Qwen-
    outfit = "tennis uniform, teal and white tennis dress, white visor, white shoes"  # optional, auto-locked
    ```
 2. Regenerate:
-   ```powershell
-   python tools/build_il_graphs.py
+   ```sh
+   ./dev build il_graphs
    ```
 3. In ComfyUI, open `IL_DatasetEdit_aria` (details: [DATASET.md](DATASET.md)):
    - **Stage 1:** reroll **Hero Seed** until the face in HERO preview is good. Leave it fixed.
    - **Stage 2:** seed control = randomize, batch count ~40, **Queue once** -> `output/dataset/aria/`.
 4. Curate: delete bad frames in place. Keep best 25-40 (min 12).
 5. Train:
-   ```powershell
-   .\tools\lora_train\train_lora.ps1 -Char aria        # or train_all.ps1 for the whole roster
+   ```bash
+   ./dev train aria        # or ./dev train --all for the whole roster
    ```
 6. Use: any IL_* graph -> **LoRA bank** -> toggle `aria_v1` ON, strength ~0.75, add trigger `ariachar`.
 
@@ -62,15 +64,15 @@ recognizably the same person, not pixel-identical -- the outfit changes the rend
 
 | Want | Do |
 |---|---|
-| Harder face lock | `train_lora.ps1 -Char aria -TrainTextEncoder` or `-Dim 32 -Alpha 16` |
-| More capacity | `-Dim 32 -Alpha 16` (or `-Profile complex`) |
-| Preset bundle | `-Profile fast\|quality\|complex` (defined in `train.toml`) |
-| Preview the exact command, train nothing | `-DryRun` |
+| Harder face lock | `./dev train aria --train-text-encoder` or `--dim 32 --alpha 16` |
+| More capacity | `--dim 32 --alpha 16` (or `--profile complex`) |
+| Preset bundle | `--profile fast\|quality\|complex` (defined in `train.toml`) |
+| Preview the exact command, train nothing | `--dry-run` |
 | Persist per-char training params | a `[train.<char>]` table in `train.toml` |
-| LoRA overcooked | `-DCoef 0.8` or `-Optimizer adamw` |
-| OOM / too slow | `install_qwen_edit.ps1 -Quant Q4_K_M` |
+| LoRA overcooked | `--d-coef 0.8` or `--optimizer adamw` |
+| OOM / too slow | `./dev models install il_graphs --variant quant=Q4_K_M` |
 | More pose/angle variety | raise multiple-angles LoRA toward 1.0 in `build_dataset_edit()`; add lines to `wildcards/pose.txt` |
-| Don't re-tag on retrain | `train_lora.ps1 -Char aria -SkipCaption` |
+| Don't re-tag on retrain | `./dev train aria --skip-caption` |
 | Preview caption pruning | `prep_captions.py <dir> --trigger <t> --outfit "..." --dry-run` |
 
 All training knobs + precedence: **[REFERENCE.md](REFERENCE.md)**. Tune them in `train.toml` (no code edit).

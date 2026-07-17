@@ -44,7 +44,7 @@ ComfyUI is the AI creation engine for visual professionals who demand control ov
 
 > **Fork notes (vsiva):** This fork pins all custom_nodes as git submodules for reproducible install.
 > See [`ONBOARDING.md`](./ONBOARDING.md) for the bootstrap flow on a fresh machine:
-> `git clone --recurse-submodules` → `setup.bat` → `run_comfy.bat`. Workflows + models live in a separate repo.
+> `git clone --recurse-submodules` → `./dev setup` → `./dev run`. Workflows + models live in a separate repo.
 
 ## Get Started
 

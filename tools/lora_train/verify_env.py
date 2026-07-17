@@ -1,5 +1,6 @@
 """Verify the LoRA-training venv actually works (not just that torch imports).
-Run with the trainer venv python:  tools/lora_train/.venv/Scripts/python.exe verify_env.py
+Run with the trainer venv python (tools/lora_train/.venv/bin/python on Linux/macOS,
+.venv\Scripts\python.exe on Windows):  <trainer-python> verify_env.py
 """
 import importlib
 import math
@@ -51,7 +52,7 @@ check("onnxruntime (WD14 tagger)", onnx_ok)
 
 
 def dataset_cfg():
-    # Parse a dataset config shaped exactly like the one train_lora.ps1 generates into .cache/<char>.toml.
+    # Parse a dataset config shaped exactly like the one `dev train` generates into .cache/<char>.toml.
     # Deliberately uses the third-party `toml` package (NOT stdlib tomllib): that is the reader sd-scripts
     # itself uses, so this proves a real training dependency is installed and parses the config we feed it.
     import toml

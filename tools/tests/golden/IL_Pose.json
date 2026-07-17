@@ -916,7 +916,7 @@
         "Node name for S&R": "ControlNetLoader"
       },
       "widgets_values": [
-        "SDXL\\controlnet-union-sdxl-1.0\\diffusion_pytorch_model_promax.safetensors"
+        "SDXL/controlnet-union-sdxl-1.0/diffusion_pytorch_model_promax.safetensors"
       ],
       "title": "ControlNet union (pose)"
     },
@@ -1192,7 +1192,7 @@
       "widgets_values": [
         1234567890,
         "fixed",
-        30,
+        28,
         5,
         "euler_ancestral",
         "normal",

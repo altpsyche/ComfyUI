@@ -41,14 +41,14 @@ cross-link, they don't repeat.
 characters.toml  ──build──▶  IL_DatasetEdit_<name>  ──generate──▶  output/dataset/<name>/
    (id · outfit)              (Qwen-Image-Edit)         + curate
                                                             │
-                          train_lora.ps1 ◀─ roster.json ◀──┘   ──▶  models/loras/<name>_v1.safetensors
+                          ./dev train     ◀─ roster.json ◀──┘   ──▶  models/loras/<name>_v1.safetensors
                           (caption + train)                          (toggle in any IL_* LoRA bank)
 ```
 
 1. **Define** — add a `[table]` to [`../il_graphs/characters.toml`](../il_graphs/characters.toml). → [ADD_CHARACTER.md](ADD_CHARACTER.md)
 2. **Generate** — `python tools/build_il_graphs.py`, open `IL_DatasetEdit_<name>`, queue ~40. → [DATASET.md](DATASET.md)
 3. **Curate** — keep the on-model 25–40 (min 12), delete in place.
-4. **Train** — `train_lora.ps1 -Char <name>` (or `train_all.ps1`). → [REFERENCE.md](REFERENCE.md)
+4. **Train** — `./dev train <name>` (or `./dev train --all`). → [REFERENCE.md](REFERENCE.md)
 5. **Use** — toggle `<name>_v1` ON in any LoRA bank, strength ~0.75, add the trigger word.
 
 ## Prerequisites & hardware
@@ -64,21 +64,24 @@ characters.toml  ──build──▶  IL_DatasetEdit_<name>  ──generate─�
 
 ## Setup (once per machine)
 
-```powershell
-setup.bat --with-trainer                                                 # trainer venv (multi-GB)
-powershell -ExecutionPolicy Bypass -File scripts\install_qwen_edit.ps1   # Qwen-Edit stack (~23 GB)
+Run `./dev …` on Linux/macOS, `dev …` on Windows.
+
+```bash
+./dev setup --with-trainer        # trainer venv (multi-GB)
+./dev models install il_graphs    # Qwen-Edit stack (~23 GB)
 ```
 
-`setup.bat --with-trainer` runs `scripts/install_trainer.ps1`, which idempotently: creates
-`tools/lora_train/.venv` via `uv` (Python 3.11) · installs **torch 2.7.0 + torchvision (cu128)** ·
-the sd-scripts requirements + **onnx/onnxruntime** (the WD14 tagger needs them) + **prodigyopt** ·
-runs `accelerate config default`. Re-provision alone with
-`powershell -ExecutionPolicy Bypass -File scripts\install_trainer.ps1`.
+`./dev setup --with-trainer` runs the trainer-venv phase (in the devtools/ package,
+`devtools/setup/`), which idempotently: creates `tools/lora_train/.venv` via `uv` (Python 3.11) ·
+installs **torch 2.7.0 + torchvision (cu128)** · the sd-scripts requirements + **onnx/onnxruntime**
+(the WD14 tagger needs them) + **prodigyopt** · runs `accelerate config default`. Re-provision alone
+by re-running `./dev setup --with-trainer`.
 
 The trainer is **kohya-ss/sd-scripts**, vendored as a submodule at `tools/sd-scripts`; its venv lives
 at `tools/lora_train/.venv`, separate from ComfyUI's. Sanity-check it:
-```powershell
-tools\lora_train\.venv\Scripts\python.exe tools\lora_train\verify_env.py
+```sh
+# trainer-venv python: .venv/bin/python on Linux/macOS, .venv\Scripts\python.exe on Windows
+tools/lora_train/.venv/bin/python tools/lora_train/verify_env.py
 ```
 Expect `[+]` on: GPU bf16 matmul · sd-scripts import · onnxruntime · prodigyopt · accelerate · dataset
 TOML parses · wildcards present.
@@ -100,11 +103,11 @@ re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/que
 | **The edit instruction template** | `wtext` in `build_dataset_edit()` ([`graphs.py`](../il_graphs/graphs.py)) | regenerate |
 | **Hero render** (checkpoint / sampler / steps / size) | `CKPT`, `BASE_*`, `REF_SUFFIX` in [`config.py`](../il_graphs/config.py) | regenerate |
 | **Qwen-Edit knobs** (LoRA strengths, KSampler steps) | `build_dataset_edit()` in [`graphs.py`](../il_graphs/graphs.py) | regenerate |
-| **Qwen-Edit quant** (VRAM/speed) | `scripts/install_qwen_edit.ps1 -Quant Q4_K_M` | re-run installer |
-| **Training params** (rank / optimizer / steps / LR / resolution …) | `train.toml` or `train_lora.ps1` flags — matrix in [REFERENCE.md](REFERENCE.md) | n/a |
+| **Qwen-Edit quant** (VRAM/speed) | `./dev models install il_graphs --variant quant=Q4_K_M` | re-run installer |
+| **Training params** (rank / optimizer / steps / LR / resolution …) | `train.toml` or `./dev train` flags — matrix in [REFERENCE.md](REFERENCE.md) | n/a |
 
 > **The training bridge is folder-based:** any dataset workflow just needs to save to
-> `output/dataset/<name>/`; `train_lora.ps1 -Char <name>` and `train_all.ps1` pick it up regardless of
+> `output/dataset/<name>/`; `./dev train <name>` and `./dev train --all` pick it up regardless of
 > which workflow produced the images. The wildcard `.txt` files live inside the **Impact-Pack
 > submodule** (untracked by this fork) — they exist on this machine but a fresh clone won't have them.
 
@@ -118,7 +121,7 @@ re-open the workflow); **wildcard `.txt`** edits are *live* — just re-open/que
 - **Roster + per-character graphs.** Adding a character is one config entry, not edited scripts —
   scales to N characters with no copy-paste.
 - **Data-driven training params.** Hyperparameters live in `train.toml` (layered defaults / profiles /
-  per-char), not hardcoded in the `.ps1`. → [REFERENCE.md](REFERENCE.md)
+  per-char), not hardcoded in `./dev train`. → [REFERENCE.md](REFERENCE.md)
 - The SDXL/Qwen/Blackwell-specific choices (GGUF+Lightning for 16 GB, Prodigy + `--sdpa`, two venvs,
   CLIP-skip −2) and what NOT to undo are in [GOTCHAS.md](GOTCHAS.md).
 
@@ -146,8 +149,7 @@ tools/
     train.toml                training hyperparams: [defaults] / [profiles.*] / [train.<char>]
     train_config.py           resolves train.toml (defaults < per-char < profile < CLI) -> JSON
     dataset_plan.py           modular: balanced num_repeats + multi-subset dataset .toml (keep_tokens=2)
-    train_lora.ps1            caption + train one character (-Profile / -DryRun / param flags)
-    train_all.ps1             train the whole roster
+    (train entrypoint)        `./dev train <char>` / `./dev train --all` — caption + train (--profile / --dry-run / param flags); logic in devtools/train/
     prep_captions.py          trigger-prepend + auto-bake outfit (tolerant) + extra prune (--dry-run)
     cull_dataset.py           flag blurry / near-duplicate frames before curating (--apply)
     gen_dataset.py            headless: queue IL_DatasetEdit N times with fresh seeds (needs Export-API)
@@ -159,8 +161,8 @@ custom_nodes/ComfyUI-Impact-Pack/wildcards/   framing/angle/pose/expression/back
 custom_nodes/ComfyUI-GGUF/     GGUF loader node (submodule; required by IL_DatasetEdit)
 output/dataset/<name>/        your generated + curated images
 models/loras/<name>_v1.safetensors        trained output (+ one checkpoint per epoch)
-scripts/install_trainer.ps1   builds the trainer venv (setup.bat --with-trainer)
-scripts/install_qwen_edit.ps1 downloads the Qwen-Image-Edit-2511 stack (see DATASET.md)
+devtools/setup/               builds the trainer venv (`./dev setup --with-trainer`)
+devtools/core/download.py     downloads model stacks (`./dev models install il_graphs`); the pack's models.toml lists files (see DATASET.md)
 ```
 
 Key defaults — **training**: LoRA dim 16 / alpha 8 / Prodigy / ~1500 steps (full matrix:

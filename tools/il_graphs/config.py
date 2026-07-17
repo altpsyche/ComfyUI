@@ -9,8 +9,11 @@ SEED = 1234567890           # shared fixed seed across ALL tiers (comparison)
 CKPT = "oneObsession_v19Atypical.safetensors"
 VAE = "sdxl_vae_f16_fix.safetensors"
 UPSCALE = "4x-AnimeSharp.pth"
-CN_DEPTH = "SDXL\\controlnet-depth-sdxl-1.0\\diffusion_pytorch_model.safetensors"
-CN_UNION = "SDXL\\controlnet-union-sdxl-1.0\\diffusion_pytorch_model_promax.safetensors"
+# Forward slashes: these strings land inside the generated workflow JSON as ControlNetLoader model
+# names. ComfyUI accepts '/' on every OS; a backslash is a literal filename char on Linux and breaks
+# the model lookup.
+CN_DEPTH = "SDXL/controlnet-depth-sdxl-1.0/diffusion_pytorch_model.safetensors"
+CN_UNION = "SDXL/controlnet-union-sdxl-1.0/diffusion_pytorch_model_promax.safetensors"
 
 # base sampler config — IDENTICAL in every tier (this is what made base best)
 BASE_SAMPLER = "euler_ancestral"

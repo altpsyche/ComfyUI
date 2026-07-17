@@ -113,7 +113,7 @@ def build_xyplot():
     return b.build()
 
 
-# Qwen-Image-Edit-2511 model stack (downloaded by scripts/install_qwen_edit.ps1).
+# Qwen-Image-Edit-2511 model stack (downloaded by `dev models install il_graphs`).
 QE_GGUF = "qwen-image-edit-2511-Q5_K_M.gguf"
 QE_CLIP = "qwen_2.5_vl_7b_fp8_scaled.safetensors"
 QE_VAE = "qwen_image_vae.safetensors"
@@ -265,9 +265,9 @@ def build_dataset_edit(name="edit", identity="1girl, solo", outfit="", hero_seed
         "  -> output/dataset/" + save_tag + "/. Each frame = that DETAILED hero re-posed into a new framing/\n"
         "  angle/pose/expression/background/lighting, same identity + art style. (mode 'populate': the\n"
         "  bottom box shows the resolved prompt and re-rolls each queue; also expands headless via backend.)\n"
-        "Then curate the best 25-40 and run: tools/lora_train/train_lora.ps1 -Char " + train_char + ".\n"
+        "Then curate the best 25-40 and run: ./dev train " + train_char + ".\n"
         "Wildcards (__angle__/__pose__/__expression__/__framing__/__background__/__lighting__) live in\n"
-        "  ComfyUI-Impact-Pack/wildcards/. Too slow / OOM? re-run install_qwen_edit.ps1 -Quant Q4_K_M.\n"
+        "  ComfyUI-Impact-Pack/wildcards/. Too slow / OOM? re-run ./dev models install il_graphs --variant quant=Q4_K_M.\n"
         "Poses too similar? __pose__/__angle__ lead the instruction on purpose -- raise the multiple-angles\n"
         "  LoRA toward 1.0, or drop a scene axis. Identity drifting? lower the multiple-angles LoRA.\n"
         "QUALITY: the HERO is detailed up front (one pass) so every frame inherits a crisp face. If Qwen\n"

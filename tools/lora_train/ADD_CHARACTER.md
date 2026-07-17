@@ -19,7 +19,7 @@ Traps you shouldn't re-discover: [GOTCHAS.md](GOTCHAS.md). Which clothing mechan
 
 ## 1. Define the character — `tools/il_graphs/characters.toml`
 
-Add one `[table]` (table name = the `-Char` name = the dataset folder name):
+Add one `[table]` (table name = the character name you pass to `./dev train` = the dataset folder name):
 
 ```toml
 [aria]
@@ -55,8 +55,8 @@ stays a normal, separate tag → it does **not** travel with the trigger.
 
 ## 2. Regenerate the workflows
 
-```powershell
-python tools/build_il_graphs.py
+```sh
+./dev build il_graphs
 ```
 - [ ] Emits `IL_DatasetEdit_<name>` + rewrites `tools/lora_train/roster.json`, and **validates** every
       graph. If it prints a validation failure, fix it before continuing.
@@ -80,23 +80,23 @@ Open **`IL_DatasetEdit_<name>`** (anatomy + tuning: [DATASET.md](DATASET.md)):
 ## 5. (Optional) Tune training
 
 Defaults (dim 16 / alpha 8 / 1500 steps / prodigy) suit a ~30–40 image character. Change only if needed:
-- [ ] Big set (~200 imgs): raise steps — `-Steps 3000 -Epochs 10`, or a `[train.<name>]` block in
-      [`train.toml`](train.toml), or `-Profile complex`.
-- [ ] Visually complex character: `-Profile complex` (dim 32 / alpha 16) or `-Dim 32 -Alpha 16`.
-- [ ] Preview the resolved settings + exact command without training: `... -Char <name> -DryRun`.
+- [ ] Big set (~200 imgs): raise steps — `--steps 3000 --epochs 10`, or a `[train.<name>]` block in
+      [`train.toml`](train.toml), or `--profile complex`.
+- [ ] Visually complex character: `--profile complex` (dim 32 / alpha 16) or `--dim 32 --alpha 16`.
+- [ ] Preview the resolved settings + exact command without training: `./dev train <name> --dry-run`.
 
-Full matrix + precedence (CLI > `-Profile` > `[train.<char>]` > defaults): [REFERENCE.md](REFERENCE.md).
+Full matrix + precedence (CLI > `--profile` > `[train.<char>]` > defaults): [REFERENCE.md](REFERENCE.md).
 
 ## 6. Train
 
-```powershell
-.\tools\lora_train\train_lora.ps1 -Char <name>
+```bash
+./dev train <name>
 ```
 It auto-runs the WD14 tagger → bakes the outfit (`prep_captions`) → trains.
 
 - [ ] **If it aborts with "outfit matched NO caption tags"** → the outfit vocabulary is wrong. Open a
       `output/dataset/<name>/*.txt`, copy the real garment tags into `outfit` in `characters.toml`,
-      `python tools/build_il_graphs.py`, then retrain. (Or `-Force` to train without the outfit baked.)
+      `python tools/build_il_graphs.py`, then retrain. (Or `--force` to train without the outfit baked.)
 - [ ] Free ComfyUI's VRAM first (POST `/free` or close it) and **disable PC sleep** — a multi-hour run
       dies silently if the machine sleeps.
 
@@ -156,7 +156,7 @@ winter = "coat, long coat"
 - [ ] §2 regenerate emits **one graph per outfit**: `IL_DatasetEdit_mira_hoodie`, `IL_DatasetEdit_mira_winter`.
 - [ ] §3 generate **each** graph into its own subfolder `output/dataset/mira/<outfit>/` (~20–25 frames
       each; SDXL renders the character wearing that outfit, same `hero_seed`+id so faces match). Curate each (§4).
-- [ ] §6 train **once**: `train_lora.ps1 -Char mira` — it captions every outfit subfolder with a two-token
+- [ ] §6 train **once**: `./dev train mira` — it captions every outfit subfolder with a two-token
       trigger (`mirachar, mira_<outfit>`), bakes per-outfit, and trains one balanced multi-subset LoRA.
 - [ ] §6a per-outfit: each `.txt` starts `mirachar, mira_<outfit>, …` and that outfit's garments are gone.
 - [ ] §8 inference: `mirachar, mira_hoodie` or `mirachar, mira_winter` — swap the outfit token to change
@@ -169,11 +169,11 @@ winter = "coat, long coat"
 
 | Symptom | Cause / fix |
 |---|---|
-| `train_lora` aborts: "outfit matched NO caption tags" | Outfit vocabulary mismatch (§1a). Open a `.txt`, use the real tags, rebuild, retrain. |
+| `./dev train` aborts: "outfit matched NO caption tags" | Outfit vocabulary mismatch (§1a). Open a `.txt`, use the real tags, rebuild, retrain. |
 | Trained, but the **outfit is different / inconsistent** | Outfit didn't bake (garments still in the `.txt` — §6a), or the dataset drifted (§4). Fix vocab + curate, retrain. |
 | "no dataset at output/dataset/\<name\>" | You skipped §3 — generate the dataset first. |
 | Character doesn't appear at inference | Trigger word missing from the prompt, or LoRA strength too low (§7). |
 | Outfit looks right at high strength only | Use the XY plot (§7) to find the strength/epoch sweet spot. |
-| OOM / too slow generating the dataset | `scripts\install_qwen_edit.ps1 -Quant Q4_K_M`. More: [DATASET.md](DATASET.md). |
+| OOM / too slow generating the dataset | `./dev models install il_graphs --variant quant=Q4_K_M`. More: [DATASET.md](DATASET.md). |
 | Identity drifts across dataset frames | Lower the multiple-angles LoRA; pin a tight `id` + `hero_seed`. More: [DATASET.md](DATASET.md). |
 | Modular: outfits bleed into each other / into identity | Hard to fully avoid with few outfits. Add more frames per outfit, make outfits more visually distinct, or add regularization images; retrain. [CLOTHING_MODEL.md](CLOTHING_MODEL.md). |
