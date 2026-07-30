@@ -88,3 +88,15 @@
 [submodule "custom_nodes/ComfyUI-GGUF"]
 	path = custom_nodes/ComfyUI-GGUF
 	url = https://github.com/city96/ComfyUI-GGUF
+[submodule "custom_nodes/ComfyUI-TRELLIS2"]
+	path = custom_nodes/ComfyUI-TRELLIS2
+	url = https://github.com/PozzettiAndrea/ComfyUI-TRELLIS2.git
+[submodule "custom_nodes/ComfyUI-GeometryPack"]
+	path = custom_nodes/ComfyUI-GeometryPack
+	url = https://github.com/PozzettiAndrea/ComfyUI-GeometryPack.git
+[submodule "custom_nodes/ComfyUI-seamless-tiling"]
+	path = custom_nodes/ComfyUI-seamless-tiling
+	url = https://github.com/spinagon/ComfyUI-seamless-tiling.git
+[submodule "custom_nodes/ComfyUI-Hy3D-Omni"]
+	path = custom_nodes/ComfyUI-Hy3D-Omni
+	url = https://github.com/Rizzlord/ComfyUI-Hy3D-Omni.git

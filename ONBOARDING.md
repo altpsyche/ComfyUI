@@ -46,10 +46,13 @@ If `ssh -T git@github.com` doesn't succeed, set up an SSH key first per [GitHub 
 
 ## What this repo pins
 
-**23 submodules** under `custom_nodes/`:
+**31 submodules** under `custom_nodes/`:
 
 - **Workflow custom nodes** (22): ComfyUI-Manager, ComfyUI-Impact-Pack, ComfyUI-Impact-Subpack, ComfyUI_IPAdapter_plus, comfyui_controlnet_aux, ComfyUI-Advanced-ControlNet, ComfyUI_Noise, Comfy-WaveSpeed, comfyui-aesthetic-predictor-v2-5, ComfyUI-Detail-Daemon, ComfyUI-Inspire-Pack, ComfyUI-Olm-Sketch, ComfyUI-Prompt-DB, ComfyUI-ultimate-openpose-editor, sd-perturbed-attention, comfyui-sam2, comfyui-textonsegs, efficiency-nodes-comfyui, efficiency-nodes-ED, flowmatching-inverter, rgthree-comfy, was-ns
 - **Author tooling** (1): ComfyScript — Python DSL for code-based workflow authoring
+- **3D generation** (2): ComfyUI-TRELLIS2, ComfyUI-GeometryPack — see the *3D generation* table in
+  [FORK_README.md](FORK_README.md#submodules), which records the one non-obvious install step
+  (`comfy-kitchen` inside the isolated pixi env)
 
 All pinned to specific commit SHAs. `git submodule status` shows exact versions.
 
