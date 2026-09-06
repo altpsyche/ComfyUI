@@ -30,7 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_run = sub.add_parser("run", help="launch ComfyUI")
     _add_color_flag(p_run)
-    p_run.add_argument("rest", nargs=argparse.REMAINDER, help="extra args forwarded to main.py")
+    p_run.add_argument("rest", nargs="*", metavar="ARG",
+                       help="extra args forwarded to main.py (e.g. --listen 0.0.0.0 --port 8188)")
 
     p_verify = sub.add_parser("verify", help="post-install smoke checks")
     _add_color_flag(p_verify)
@@ -50,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_train = sub.add_parser("train", help="train a character LoRA (see `dev train --help`)")
     _add_color_flag(p_train)
-    p_train.add_argument("rest", nargs=argparse.REMAINDER)
+    p_train.add_argument("rest", nargs="*", metavar="ARG")
 
     p_val = sub.add_parser("validate", help="validate a workflow JSON against its rules")
     _add_color_flag(p_val)
@@ -59,9 +60,36 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+# Subcommands whose trailing args are forwarded verbatim to another program. argparse.REMAINDER
+# can't do this: it only starts collecting at the first non-option token, so a leading `--listen`
+# is parsed as one of dev's own flags and errors out. Peel the tail off before argparse sees it.
+_PASSTHROUGH_CMDS = ("run", "train")
+
+
+def _split_passthrough(argv):
+    """Return (args_for_argparse, forwarded_args_or_None).
+
+    dev's own flags must come before the subcommand (`dev --no-color run ...`); everything after
+    the subcommand name belongs to the target program. A single leading `--` separator is dropped.
+    """
+    for i, tok in enumerate(argv):
+        if tok in _PASSTHROUGH_CMDS:
+            tail = argv[i + 1:]
+            if tail and tail[0] == "--":
+                tail = tail[1:]
+            return argv[:i + 1], tail
+        if not tok.startswith("-"):
+            break  # some other subcommand
+    return argv, None
+
+
 def main(argv=None) -> int:
+    import sys
     ap = build_parser()
-    args = ap.parse_args(argv)
+    head, forwarded = _split_passthrough(list(sys.argv[1:] if argv is None else argv))
+    args = ap.parse_args(head)
+    if forwarded is not None:
+        args.rest = forwarded
 
     from .core import platform as plat
     if getattr(args, "no_color", False):
