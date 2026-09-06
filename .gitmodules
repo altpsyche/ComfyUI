@@ -100,3 +100,6 @@
 [submodule "custom_nodes/ComfyUI-Hy3D-Omni"]
 	path = custom_nodes/ComfyUI-Hy3D-Omni
 	url = https://github.com/Rizzlord/ComfyUI-Hy3D-Omni.git
+[submodule "custom_nodes/comfyui-mobile-frontend"]
+	path = custom_nodes/comfyui-mobile-frontend
+	url = git@github.com:cosmicbuffalo/comfyui-mobile-frontend.git
