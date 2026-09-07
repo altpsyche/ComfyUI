@@ -19,9 +19,6 @@
 [submodule "custom_nodes/ComfyUI_Noise"]
 	path = custom_nodes/ComfyUI_Noise
 	url = git@github.com:BlenderNeko/ComfyUI_Noise.git
-[submodule "custom_nodes/Comfy-WaveSpeed"]
-	path = custom_nodes/Comfy-WaveSpeed
-	url = git@github.com:chengzeyi/Comfy-WaveSpeed.git
 [submodule "custom_nodes/comfyui-aesthetic-predictor-v2-5"]
 	path = custom_nodes/comfyui-aesthetic-predictor-v2-5
 	url = git@github.com:discus0434/comfyui-aesthetic-predictor-v2-5.git
