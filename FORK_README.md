@@ -1,12 +1,17 @@
 # Fork guide — vsiva's ComfyUI
 
 A fork of [ComfyUI](https://github.com/comfyanonymous/ComfyUI) (upstream remote: `Comfy-Org`)
-set up as a **reproducible, engine-only** install: every required custom node and the LoRA
-trainer are pinned as git submodules, and a one-shot `./dev setup` provisions the whole thing.
-Workflows and models live elsewhere (see [What's NOT in this repo](#whats-not-in-this-repo)).
+set up as a **reproducible, engine-only** install: every required custom node is pinned as a git
+submodule, and a one-shot `./dev setup` provisions the whole thing. Workflows, models, and the
+author tooling all live elsewhere (see [What's NOT in this repo](#whats-not-in-this-repo)).
 
 - **Fresh-machine setup** → [ONBOARDING.md](ONBOARDING.md) (clone with submodules, prereqs, troubleshooting).
-- **This file** → the map: what the `dev` CLI, the `devtools/` package, and each tool dir is, and how the fork relates to upstream.
+- **This file** → the map: what the `dev` CLI is, how it reaches the devkit, and how the fork relates to upstream.
+
+> **The toolkit is not in this repo.** `./dev` is a stub that exports `COMFY_ROOT` and hands off to
+> the private **[comfy-devkit](https://github.com/altpsyche/comfy-devkit)** repo, cloned beside this
+> one. Everything the old `devtools/` and `tools/` dirs held — the CLI, the IL_* workflow generator,
+> the LoRA trainer, and sd-scripts — lives there now. This repo is the engine plus its node pins.
 
 ## Quick start
 
@@ -14,6 +19,7 @@ Run `./dev …` on Linux/macOS, `dev …` on Windows.
 
 ```bash
 git clone --recurse-submodules git@github.com:altpsyche/ComfyUI.git
+git clone git@github.com:altpsyche/comfy-devkit.git      # the toolkit, beside the checkout
 cd ComfyUI
 ./dev setup                 # provision the engine (see phases below)
 ./dev setup --with-trainer  # ...and the LoRA-training venv (optional, multi-GB)
@@ -28,48 +34,61 @@ cd ComfyUI
 | **`./dev run`** | Launcher: activates `venv`, sets `PYTHONUTF8=1` + disables HF telemetry, runs `python main.py`. |
 | **`./dev verify`** | Smoke checks the install (also runs as the final phase of `./dev setup`). |
 
-## Setup phases (`devtools/setup/`, run by `./dev setup`)
+## Setup phases (`devkit/setup/`, run by `./dev setup`)
 
-These used to be standalone PowerShell scripts; they are now phases of `./dev setup`, implemented in the **devtools/ package** (setup logic under `devtools/setup/`).
+These used to be standalone PowerShell scripts; they are now phases of `./dev setup`, implemented in
+the **devkit package** in the [comfy-devkit](https://github.com/altpsyche/comfy-devkit) repo
+(setup logic under `devkit/setup/`).
 
 | Phase | Step | What it does |
 |---|---|---|
 | **torch install** | [4/6] | Maps GPU mode → PyTorch wheel index and force-reinstalls torch+torchvision. NVIDIA: autodetects CUDA from driver (≥580→cu130, ≥555→cu128, ≥525→cu121, ≥470→cu118). Skips if torch is already CUDA-enabled. |
 | **custom-node deps** | [5/6] | Walks `custom_nodes/`, runs each pack's `requirements.txt` then `install.py` (Manager convention), and installs `ComfyScript` editable. Warns-and-continues on per-pack failure. |
-| **trainer venv** | optional (`--with-trainer`) | Builds the **LoRA trainer venv** at `tools/lora_train/.venv` (uv, Python 3.11): torch **cu128** for Blackwell, sd-scripts requirements, WD14-tagger deps (onnx/onnxruntime), prodigyopt, `accelerate config default`. Idempotent. |
+| **trainer venv** | optional (`--with-trainer`) | Builds the **LoRA trainer venv** at `comfy-devkit/devkit/lora_train/.venv` (uv, Python 3.11): torch **cu128** for Blackwell, sd-scripts requirements, WD14-tagger deps (onnx/onnxruntime), prodigyopt, `accelerate config default`. Idempotent. |
 | **verify** (`./dev verify`) | [6/6] | Smoke checks: torch sees GPU, ComfyScript loads, key packs present, `git submodule status` clean. Prints pinned SHAs. |
 
 ### What `./dev setup` does
 
 `[1/6]` prereqs (python/git/ssh/gpu) · `[2/6]` `git submodule update --init --recursive` (pulls
-all custom nodes **and** `tools/sd-scripts`) · `[3/6]` create/activate `venv` · `[4/6]` ComfyUI
+all custom nodes) · `[3/6]` create/activate `venv` · `[4/6]` ComfyUI
 `requirements.txt` + torch · `[5/6]` custom-node deps
-· `[6/6]` verify · *(optional)* trainer venv (only with `--with-trainer`). All phases live in `devtools/setup/`.
+· `[6/6]` verify · *(optional)* trainer venv (only with `--with-trainer`). All phases live in the
+devkit's `devkit/setup/`.
 
 ## Two Python environments (by design)
 
 | venv | Python | torch | For |
 |---|---|---|---|
-| `venv/` | system (3.10+) | autodetected (e.g. cu130) | running ComfyUI |
-| `tools/lora_train/.venv/` | 3.11 (via uv) | pinned 2.7.0 **cu128** | kohya sd-scripts LoRA training |
+| `venv/` (this repo) | system (3.10+) | autodetected (e.g. cu130) | running ComfyUI |
+| `devkit/lora_train/.venv/` (devkit repo) | 3.11 (via uv) | pinned 2.7.0 **cu128** | kohya sd-scripts LoRA training |
 
 They're separate on purpose: sd-scripts needs Python ≤3.12 and a pinned torch, so it can't share
 ComfyUI's venv. Both work on the RTX 5080 (Blackwell sm_120 needs CUDA 12.8+).
 
-## `tools/` — author tooling (fork-specific)
+## Author tooling — moved to `comfy-devkit`
 
-| Path | What it is |
+The IL_* workflow generator, the workflow validator, the LoRA-training kit, and the sd-scripts
+submodule now live in the private **[comfy-devkit](https://github.com/altpsyche/comfy-devkit)**
+repo. They were only ever additive to this fork — nothing upstream depended on them — so they
+version on their own now.
+
+| Was | Now |
 |---|---|
-| **`tools/il_graphs/`** | Python package that generates the **IL_\*** Illustrious/SDXL workflow family (comparison ladder IL_1–5 + feature graphs IL_IPAdapter/Pose/LCM/Dataset, each with a modular **LoRA bank**). Run `python tools/build_il_graphs.py`. Details: [IL_Graphs_README.md](user/default/workflows/IL_Graphs_README.md). |
-| **`tools/build_il_graphs.py`** | Thin entrypoint shim for the `il_graphs` package. |
-| **`tools/validate_workflow.py`** | Validates a generated workflow JSON against its `.rules.toml` (CLIP skip −2, CFG range, required nodes). |
-| **`tools/lora_train/`** | LoRA-training kit: runbook + `./dev train <name>` (auto-captions + trains) + `./dev train --all` (whole roster) + `prep_captions.py` + `verify_env.py`. Characters come from the `CHARACTERS` roster in `il_graphs/config.py` (one `IL_DatasetEdit_<name>` Qwen-Image-Edit graph each). Full flow: [tools/lora_train/README.md](tools/lora_train/README.md). |
-| **`tools/sd-scripts/`** | kohya-ss/sd-scripts **submodule** (the trainer code). Provisioned by `./dev setup --with-trainer`. |
+| `tools/il_graphs/` | `devkit/il_graphs/` — run `./dev build il_graphs` |
+| `tools/build_il_graphs.py` | `python -m devkit.il_graphs` (or the `build` command above) |
+| `tools/validate_workflow.py` | `devkit/validate_workflow.py` — run `./dev validate <file>` |
+| `tools/lora_train/` | `devkit/lora_train/` — run `./dev train <name>` |
+| `tools/sd-scripts/` | `vendor/sd-scripts` submodule, same pin |
+| `devtools/` | `devkit/` |
+
+`./dev` still works exactly as before from this repo root: the stub exports `COMFY_ROOT` and
+delegates. Generated workflows still land in `user/default/workflows/`, and models still download
+into `models/` here.
 
 ## Submodules
 
-32 submodules total: **31 under `custom_nodes/`** (pinned workflow nodes + ComfyScript — see
-[ONBOARDING.md](ONBOARDING.md#what-this-repo-pins)) and **`tools/sd-scripts`** (the LoRA trainer).
+34 submodules, **all under `custom_nodes/`** (pinned workflow nodes + ComfyScript — see
+[ONBOARDING.md](ONBOARDING.md#what-this-repo-pins)). The LoRA trainer moved to the devkit repo.
 `git submodule status` shows exact pinned SHAs. To bump one, see ONBOARDING's *Bumping a submodule*.
 
 ### 3D generation (added for the BobBlender ComfyUI track, `docs/COMFYUI.md` G0.5)
@@ -142,7 +161,7 @@ way. Recorded so nobody has to re-derive it.
 ## Fork vs upstream
 
 - Remote: `origin = git@github.com:altpsyche/ComfyUI.git`; tracks `Comfy-Org/master` upstream.
-- **Fork-specific** (not upstream): the `dev` CLI, the `devtools/` package, `tools/`,
+- **Fork-specific** (not upstream): the `dev`/`setup`/`run_comfy` launcher stubs,
   `ONBOARDING.md`, this file, and `.gitmodules` (the pinned node set).
 - Sync upstream: `git fetch upstream && git merge upstream/master` (or the existing
   `Comfy-Org:master` merge flow), then re-run `./dev setup` to pick up new core deps.

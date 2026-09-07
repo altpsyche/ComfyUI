@@ -1,14 +1,31 @@
 #!/usr/bin/env sh
 # ComfyUI dev toolkit dispatcher (Linux/macOS).
 #
-# Runs the stdlib-only dispatcher on the system python; individual commands re-exec into the
-# appropriate venv (main / trainer) as needed. All logic lives in the devtools/ package —
-# this launcher never needs editing when commands are added.
+# The toolkit itself lives in the private comfy-devkit repo, cloned beside this one. This stub
+# exports COMFY_ROOT (so the devkit knows which checkout to act on) and hands off. All logic lives
+# there — this launcher never needs editing when commands are added.
 set -e
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-cd "$here"
+COMFY_ROOT="$here"
+export COMFY_ROOT
+
+devkit=${COMFY_DEVKIT:-$(dirname -- "$here")/comfy-devkit}
+if [ ! -f "$devkit/devkit/cli.py" ]; then
+    echo "comfy-devkit not found at $devkit" >&2
+    echo "" >&2
+    echo "The dev toolkit lives in a separate private repo. Clone it beside this one:" >&2
+    echo "    git clone git@github.com:altpsyche/comfy-devkit.git $devkit" >&2
+    echo "" >&2
+    echo "Or point COMFY_DEVKIT at an existing clone." >&2
+    exit 1
+fi
+
 PY=$(command -v python3 || command -v python) || {
     echo "python3 not found on PATH — install Python 3.10+" >&2
     exit 1
 }
-exec "$PY" -m devtools "$@"
+# Deliberately no `cd`: staying in the caller's directory keeps relative path arguments
+# (e.g. `./dev validate user/default/workflows/IL_1_Base.json`) resolving as the user typed them.
+PYTHONPATH="$devkit${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec "$PY" -m devkit "$@"
