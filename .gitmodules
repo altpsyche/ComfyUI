@@ -97,3 +97,6 @@
 [submodule "custom_nodes/comfyui-mobile-frontend"]
 	path = custom_nodes/comfyui-mobile-frontend
 	url = git@github.com:cosmicbuffalo/comfyui-mobile-frontend.git
+[submodule "custom_nodes/ComfyUI_Comfyroll_CustomNodes"]
+	path = custom_nodes/ComfyUI_Comfyroll_CustomNodes
+	url = https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes.git
