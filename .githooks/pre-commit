@@ -1,0 +1,13 @@
+#!/bin/sh
+# The SpriteKit pin (.gitmodules + gitlink) is committed only on the author's go-ahead:
+#   SPRITEKIT_PIN_OK=1 git commit ...      (see CLAUDE.md). Never use --no-verify.
+if [ "$SPRITEKIT_PIN_OK" = "1" ]; then
+    exit 0
+fi
+if git diff --cached --name-only | grep -qE '^(\.gitmodules|custom_nodes/ComfyUI-SpriteKit)$'; then
+    echo "pre-commit: this commit includes .gitmodules or the ComfyUI-SpriteKit gitlink." >&2
+    echo "  Pinning SpriteKit in the fork is author-only. Commit other paths explicitly" >&2
+    echo "  (git commit -- <paths>) or ask the author." >&2
+    exit 1
+fi
+exit 0
