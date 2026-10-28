@@ -51,13 +51,15 @@
 	url = git@github.com:NyaamZ/efficiency-nodes-ED.git
 [submodule "custom_nodes/efficiency-nodes-comfyui"]
 	path = custom_nodes/efficiency-nodes-comfyui
-	url = git@github.com:jags111/efficiency-nodes-comfyui.git
+	url = git@github.com:altpsyche/efficiency-nodes-comfyui.git
+	branch = altpsyche
 [submodule "custom_nodes/flowmatching-inverter"]
 	path = custom_nodes/flowmatching-inverter
 	url = git@github.com:ttulttul/ComfyUI-FlowMatching-Inverter.git
 [submodule "custom_nodes/rgthree-comfy"]
 	path = custom_nodes/rgthree-comfy
-	url = git@github.com:rgthree/rgthree-comfy.git
+	url = git@github.com:altpsyche/rgthree-comfy.git
+	branch = altpsyche
 [submodule "custom_nodes/was-ns"]
 	path = custom_nodes/was-ns
 	url = git@github.com:WASasquatch/was-node-suite-comfyui.git
@@ -99,4 +101,8 @@
 	url = git@github.com:cosmicbuffalo/comfyui-mobile-frontend.git
 [submodule "custom_nodes/ComfyUI_Comfyroll_CustomNodes"]
 	path = custom_nodes/ComfyUI_Comfyroll_CustomNodes
-	url = https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes.git
+	url = https://github.com/altpsyche/ComfyUI_Comfyroll_CustomNodes.git
+	branch = altpsyche
+[submodule "custom_nodes/ComfyUI-SpriteKit"]
+	path = custom_nodes/ComfyUI-SpriteKit
+	url = https://github.com/altpsyche/ComfyUI-SpriteKit.git
