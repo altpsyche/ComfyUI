@@ -1,4 +1,4 @@
-from ._helpers import get_fs_object_size
+from ._helpers import get_fs_object_size, get_output_consumers, validate_output_unlinked
 from .client import (
     ApiEndpoint,
     poll_op,
@@ -31,6 +31,7 @@ from .conversions import (
     upscale_image_tensor_to_min_pixels,
     upscale_video_to_min_pixels,
     video_to_base64_string,
+    video_to_images_and_mask,
 )
 from .download_helpers import (
     download_url_as_bytesio,
@@ -107,6 +108,7 @@ __all__ = [
     "upscale_image_tensor_to_min_pixels",
     "upscale_video_to_min_pixels",
     "video_to_base64_string",
+    "video_to_images_and_mask",
     # Validation utilities
     "get_image_dimensions",
     "get_number_of_images",
@@ -122,4 +124,7 @@ __all__ = [
     "validate_video_frame_count",
     # Misc functions
     "get_fs_object_size",
+    # Graph helpers
+    "get_output_consumers",
+    "validate_output_unlinked",
 ]

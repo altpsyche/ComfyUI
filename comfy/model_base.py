@@ -23,6 +23,7 @@ import logging
 import comfy.ldm.lightricks.av_model
 import comfy.ldm.minimax.model
 import comfy.ldm.minimax_music.dit
+import comfy.ldm.yue2.model
 import comfy.nested_tensor
 import comfy.ldm.lightricks.symmetric_patchifier
 import comfy.context_windows
@@ -39,6 +40,7 @@ import comfy.ldm.hydit.models
 import comfy.ldm.audio.dit
 import comfy.ldm.audio.embedders
 import comfy.ldm.flux.model
+import comfy.ldm.flux3.model
 import comfy.ldm.lens.model
 import comfy.ldm.lightricks.model
 import comfy.ldm.hunyuan_video.model
@@ -62,6 +64,7 @@ import comfy.ldm.omnigen.omnigen2
 import comfy.ldm.seedvr.model
 import comfy.ldm.boogu.model
 import comfy.ldm.qwen_image.model
+import comfy.ldm.qwen_image21.model
 import comfy.ldm.mage_flow.model
 import comfy.ldm.joyimage.model
 import comfy.ldm.ideogram4.model
@@ -80,6 +83,8 @@ import comfy.ldm.sensenova.conditioning
 import comfy.ldm.sensenova.model
 from comfy.ldm.sensenova.sampling import SenseNovaModelSampling, time_snr_shift
 import comfy.ldm.depth_anything_3.model
+import comfy.ldm.moss_image.model
+import comfy.ldm.fibo2.model
 
 import comfy.model_management
 import comfy.patcher_extension
@@ -269,6 +274,9 @@ class BaseModel(torch.nn.Module):
         return dtype
 
     def encode_adm(self, **kwargs):
+        return None
+
+    def get_writable_model(self, conds, noise_shape, model_options, device):
         return None
 
     def concat_cond(self, **kwargs):
@@ -1096,6 +1104,39 @@ class Flux2(Flux):
         return out
 
 
+class Flux3(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.flux3.model.Flux3)
+        self.memory_usage_factor_conds = ("ref_latents",)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents is not None:
+            ref_latents = [self.process_latent_in(lat) for lat in ref_latents]
+        # the DiT attends to every text token, so no padding: cond and uncond of different lengths run separately
+        if cross_attn is not None and torch.is_inference_mode_enabled() and kwargs.get("hooks") is None and not self.diffusion_model.flow_map:
+            # the t = 0 early blocks of text and references depend on the conditioning alone: run them once, not every step
+            # (a flow map also modulates them with each step's target time)
+            device, dtype = kwargs["device"], self.get_dtype_inference()
+            refs = [lat.to(device=device, dtype=dtype) for lat in ref_latents] if ref_latents else None
+            txt_states, ref_states = self.diffusion_model.preprocess_conds(cross_attn.to(device=device, dtype=dtype), refs)
+            del out['c_crossattn']
+            out['txt_states'] = comfy.conds.CONDRegular(txt_states)
+            if ref_states is not None:
+                out['ref_states'] = comfy.conds.CONDRegular(ref_states)
+                out['ref_shapes'] = comfy.conds.CONDConstant([tuple(lat.shape[-2:]) for lat in ref_latents])
+            return out
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+        if ref_latents is not None:
+            out['ref_latents'] = comfy.conds.CONDList(ref_latents)
+        return out
+
+    extra_conds_shapes = Flux.extra_conds_shapes
+
+
 class Lens(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
         super().__init__(
@@ -1555,6 +1596,17 @@ class Lumina2(BaseModel):
         ref_latents = kwargs.get("reference_latents", None)
         if ref_latents is not None:
             out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.size()[2:]), ref_latents))])
+        return out
+
+class MingImage(Lumina2):
+    def extra_conds(self, **kwargs):
+        ref_latents = kwargs.pop("reference_latents", None)
+        out = super().extra_conds(**kwargs)
+        direct_context = kwargs.get("direct_context", None)
+        if direct_context is not None:
+            out['direct_context'] = comfy.conds.CONDRegular(direct_context)
+        if ref_latents is not None:
+            out['ref_frames'] = comfy.conds.CONDList([self.process_latent_in(lat)[:, :, f] for lat in ref_latents for f in range(lat.shape[2])])
         return out
 
 class ZImagePixelSpace(Lumina2):
@@ -2551,6 +2603,25 @@ class ACEStep15(BaseModel):
         out['refer_audio'] = comfy.conds.CONDRegular(refer_audio)
         return out
 
+class YuE2(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.yue2.model.YuE2)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        context = kwargs["cross_attn"].to(device=kwargs["device"], dtype=self.get_dtype_inference())
+        out["c_crossattn"] = comfy.conds.CONDRegular(context)
+        out["yue2_chunks"] = comfy.conds.CONDConstant(kwargs["yue2_chunks"])
+        return out
+
+    def extra_conds_shapes(self, **kwargs):
+        return {"c_crossattn": kwargs["cross_attn"].shape}
+
+    def memory_required(self, input_shape, cond_shapes={}):
+        context_size = sum(math.prod(shape) for shape in cond_shapes.get("c_crossattn", []))
+        return super().memory_required(input_shape, cond_shapes) + context_size * comfy.model_management.dtype_size(self.get_dtype_inference())
+
+
 class MiniMaxMusic3(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
         super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.minimax_music.dit.MiniMaxMusic3DiT)
@@ -2624,7 +2695,8 @@ class QwenImage(BaseModel):
         out = {}
         ref_latents = kwargs.get("reference_latents", None)
         if ref_latents is not None:
-            out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 16])
+            c = self.latent_format.latent_channels
+            out['ref_latents'] = list([1, c, sum(map(lambda a: math.prod(a.size()), ref_latents)) // c])
         return out
 
 class MageFlow(QwenImage):
@@ -2635,11 +2707,60 @@ class MageFlow(QwenImage):
         # Mage runs in bf16 and rounds its timestep frequency table to the timestep dtype, keep that on fp32 devices.
         return timestep.to(torch.bfloat16)
 
-    def extra_conds_shapes(self, **kwargs):
-        out = {}
-        ref_latents = kwargs.get("reference_latents", None)
-        if ref_latents is not None:
-            out['ref_latents'] = list([1, 128, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 128])
+class QwenImage21(QwenImage):
+    def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.qwen_image21.model.QwenImage21Transformer2DModel)
+
+    def get_dynamic_vram__units(self):
+        return list(self.diffusion_model.transformer_blocks), []
+
+    @property
+    def current_patcher(self):
+        return self._current_patcher
+
+    @current_patcher.setter
+    def current_patcher(self, patcher):
+        # set by pre_run / cleanup: the prefix K/V cache lives for one sampling run, off when hooks can repatch weights mid-run
+        self._current_patcher = patcher
+        diffusion_model = getattr(self, "diffusion_model", None)
+        if diffusion_model is not None:
+            diffusion_model.current_patcher = patcher
+            diffusion_model.reset_prefix_cache(patcher is not None and len(patcher.hook_patches) == 0)
+
+    def get_writable_model(self, conds, noise_shape, model_options, device):
+        transformer_options = model_options.get("transformer_options", {})
+        options = transformer_options.get("qwen_image21_cache", {})
+        model = self.diffusion_model
+        if options.get("device", "auto") != "auto" or not model.can_cache_prefix(transformer_options):
+            return None
+
+        heads = model.transformer_blocks[0].attn.heads
+        slots = []
+        for conditions in conds.values():
+            for cond in conditions:
+                cond["model_conds"] = c = cond["model_conds"].copy()
+                length = c["c_crossattn"].cond.shape[1]
+                if "ref_latents" in c:
+                    length += sum(t.shape[-2] * t.shape[-1] for t in c["ref_latents"].cond)
+                shape = (noise_shape[0], 2, length, heads, model.inner_dim // heads)
+                slot = comfy.ldm.qwen_image21.model.PrefixCacheSlot(shape, len(model.transformer_blocks), self.get_dtype_inference(), options.get("dtype", "default"))
+                slots.append((c, slot))
+
+        cache = comfy.ldm.qwen_image21.model.KVCacheModel([slot for _, slot in slots])
+        cache_bytes = sum(p.numel() * p.element_size() for p in cache.parameters())
+        if not (self.current_patcher.get_free_memory(device) > 4 * cache_bytes or
+                comfy.model_management.ensure_pin_budget(cache_bytes, evict_active=False)):
+            return None
+
+        for c, slot in slots:
+            c.setdefault("prefix_cache", comfy.conds.CONDKVCache({})).cond[device] = slot
+        return cache
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        image_slots = kwargs.get("image_slots", None)
+        if image_slots is not None:
+            out['image_slots'] = comfy.conds.CONDConstant(image_slots)
         return out
 
 class JoyImage(BaseModel):
@@ -2707,6 +2828,73 @@ class Krea2(BaseModel):
         if ref_latents is not None:
             out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 16])
         return out
+
+class MOSSImage(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.moss_image.model.MOSSImage)
+        self.memory_usage_factor_conds = ("ref_latents",)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        # rope positions follow the true text length, so no repeat padding: cond and uncond of different lengths run separately
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+        context_attention_bias = kwargs.get("context_attention_bias", None)
+        if context_attention_bias is not None:
+            out['context_attention_bias'] = comfy.conds.CONDRegular(context_attention_bias)
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents:
+            # control adapters widen video_embedder, the references carry no control
+            channels = self.diffusion_model.video_embedder.weight.shape[1]
+            ref_latents = [torch.nn.functional.pad(self.process_latent_in(lat), (0, 0, 0, 0, 0, channels - lat.shape[1])) for lat in ref_latents]
+            ref_latents_method = kwargs.get("reference_latents_method", None)
+            if ref_latents_method is not None:
+                out['ref_latents_method'] = comfy.conds.CONDConstant(ref_latents_method)
+            if ref_latents_method not in ("index", "index_timestep_zero") and torch.is_inference_mode_enabled() and kwargs.get("hooks") is None:
+                # references that attend only to each other at t = 0: their keys and values are computed once, not every step; equal ones batch without copies
+                device, dtype = kwargs["device"], self.get_dtype_inference()
+                out['ref_kv'] = comfy.conds.CONDConstant(self.diffusion_model.preprocess_refs([lat.to(device=device, dtype=dtype) for lat in ref_latents]))
+            else:
+                out['ref_latents'] = comfy.conds.CONDList(ref_latents)
+        return out
+
+    def extra_conds_shapes(self, **kwargs):
+        out = {}
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents is not None:
+            out['ref_latents'] = list([1, 128, sum(map(lambda a: math.prod(a.size()), ref_latents)) // 128])
+        return out
+
+    def concat_cond(self, **kwargs):
+        # control adapters widen video_embedder, zeros are no control
+        noise = kwargs["noise"]
+        channels = self.diffusion_model.video_embedder.weight.shape[1] - noise.shape[1]
+        if channels <= 0:
+            return None
+        image = kwargs.get("concat_latent_image", None)
+        if image is None:
+            return noise.new_zeros((noise.shape[0], channels) + noise.shape[2:])
+        image = utils.common_upscale(image.to(kwargs["device"]), noise.shape[-1], noise.shape[-2], "bilinear", "center")
+        return utils.resize_to_batch_size(self.process_latent_in(image), noise.shape[0])
+
+class Fibo2(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.fibo2.model.Fibo2)
+        self.memory_usage_factor_conds = ("ref_latents",)
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        # the gist token count follows the true text length, so no repeat padding: cond and uncond of different lengths run separately
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents is not None:
+            out['ref_latents'] = comfy.conds.CONDList([self.process_latent_in(lat) for lat in ref_latents])
+        return out
+
+    extra_conds_shapes = Flux.extra_conds_shapes
 
 class HunyuanImage21(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
